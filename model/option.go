@@ -177,6 +177,9 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
+	common.OptionMap["console_setting.cpa_base_url"] = ""
+	common.OptionMap["console_setting.cpa_management_key"] = ""
+	common.OptionMap["console_setting.cpa_channel_ids"] = "[]"
 
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()

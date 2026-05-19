@@ -278,6 +278,9 @@ export type OperationsSettings = {
   DefaultCollapseSidebar: boolean
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
+  'console_setting.cpa_base_url': string
+  'console_setting.cpa_management_key': string
+  'console_setting.cpa_channel_ids': string
   ChannelDisableThreshold: string
   QuotaRemindThreshold: string
   AutomaticDisableChannelEnabled: boolean
