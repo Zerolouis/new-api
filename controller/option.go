@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -82,6 +83,46 @@ func buildCompletionRatioMetaValue(optionValues map[string]string) string {
 		return "{}"
 	}
 	return string(jsonBytes)
+}
+
+func serviceParseCPAChannelIDs(raw string) ([]int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return []int{}, nil
+	}
+	var values []any
+	if err := common.UnmarshalJsonStr(trimmed, &values); err != nil {
+		return nil, fmt.Errorf("CPA 渠道配置必须是 JSON 数组")
+	}
+	channelIDs := make([]int, 0, len(values))
+	seen := make(map[int]struct{}, len(values))
+	for _, value := range values {
+		var id int
+		switch v := value.(type) {
+		case float64:
+			id = int(v)
+			if float64(id) != v {
+				return nil, fmt.Errorf("CPA 渠道 ID 必须是整数")
+			}
+		case string:
+			parsed, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return nil, fmt.Errorf("CPA 渠道 ID 必须是整数")
+			}
+			id = parsed
+		default:
+			return nil, fmt.Errorf("CPA 渠道 ID 必须是整数")
+		}
+		if id <= 0 {
+			return nil, fmt.Errorf("CPA 渠道 ID 必须大于 0")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		channelIDs = append(channelIDs, id)
+	}
+	return channelIDs, nil
 }
 
 func GetOptions(c *gin.Context) {
@@ -337,6 +378,26 @@ func UpdateOption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
+			})
+			return
+		}
+	case "console_setting.cpa_base_url":
+		rawValue := strings.TrimSpace(option.Value.(string))
+		if rawValue != "" {
+			parsedURL, parseErr := url.ParseRequestURI(rawValue)
+			if parseErr != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "CPA Base URL 必须是有效的 http/https 地址",
+				})
+				return
+			}
+		}
+	case "console_setting.cpa_channel_ids":
+		if _, parseErr := serviceParseCPAChannelIDs(option.Value.(string)); parseErr != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": parseErr.Error(),
 			})
 			return
 		}

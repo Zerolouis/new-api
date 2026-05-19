@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import type { QuotaDataItem, UptimeGroupResult } from './types'
+import type {
+  DashboardCPAQuotaData,
+  DashboardSiteOverview,
+  DashboardUserRankingItem,
+  QuotaDataItem,
+  UptimeGroupResult,
+} from './types'
 
 // ============================================================================
 // Dashboard APIs
@@ -65,6 +71,30 @@ export async function getUserQuotaDataByUsers(params: {
 export async function getUptimeStatus() {
   const res = await api.get<{ success: boolean; data: UptimeGroupResult[] }>(
     '/api/uptime/status'
+  )
+  return res.data
+}
+
+export async function getDashboardSiteOverview() {
+  const res = await api.get<{ success: boolean; data: DashboardSiteOverview }>(
+    '/api/dashboard/site-overview'
+  )
+  return res.data
+}
+
+export async function getDashboardUserRankings(period: 'all' | 'today' | 'week') {
+  const res = await api.get<{ success: boolean; data: DashboardUserRankingItem[] }>(
+    '/api/dashboard/user-rankings',
+    {
+      params: { period },
+    }
+  )
+  return res.data
+}
+
+export async function getDashboardCPAQuotas() {
+  const res = await api.get<{ success: boolean; data: DashboardCPAQuotaData }>(
+    '/api/dashboard/cpa-quotas'
   )
   return res.data
 }

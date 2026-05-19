@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemBehaviorSection } from '../general/system-behavior-section'
+import { CPASettingsSection } from '../integrations/cpa-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
@@ -38,6 +39,23 @@ const OPERATIONS_SECTIONS = [
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'cpa',
+    titleKey: 'CPA Integration',
+    descriptionKey: 'Configure CLI Proxy API quotas and channel mapping',
+    build: (settings: OperationsSettings) => (
+      <CPASettingsSection
+        defaultValues={{
+          'console_setting.cpa_base_url':
+            settings['console_setting.cpa_base_url'],
+          'console_setting.cpa_management_key':
+            settings['console_setting.cpa_management_key'],
+          'console_setting.cpa_channel_ids':
+            settings['console_setting.cpa_channel_ids'],
         }}
       />
     ),

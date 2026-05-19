@@ -55,10 +55,13 @@ import type { ApiKey } from '@/features/keys/types'
 import { useApiInfo } from '../../hooks/use-status-data'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
+import { CpaQuotaPanel } from './cpa-quota-panel'
 import { FAQPanel } from './faq-panel'
 import { PerformanceHealthPanel } from './performance-health-panel'
+import { SiteOverviewPanel } from './site-overview-panel'
 import { SummaryCards } from './summary-cards'
 import { UptimePanel } from './uptime-panel'
+import { UserTokenRankingsPanel } from './user-token-rankings-panel'
 
 const SETUP_GUIDE_VISIBILITY_STORAGE_KEY =
   'dashboard_overview_setup_guide_expanded'
@@ -715,13 +718,26 @@ export function OverviewDashboard() {
 
       <SummaryCards />
 
+      <CardStaggerContainer className='grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.9fr)]'>
+        <CardStaggerItem>
+          <SiteOverviewPanel />
+        </CardStaggerItem>
+        <CardStaggerItem>
+          <UserTokenRankingsPanel />
+        </CardStaggerItem>
+      </CardStaggerContainer>
+
+      <CardStaggerContainer>
+        <CardStaggerItem>
+          <CpaQuotaPanel />
+        </CardStaggerItem>
+      </CardStaggerContainer>
+
       <CardStaggerContainer className='grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]'>
         <div className='grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2'>
-          {isAdmin && (
-            <CardStaggerItem className='lg:col-span-2'>
-              <PerformanceHealthPanel />
-            </CardStaggerItem>
-          )}
+          <CardStaggerItem className='lg:col-span-2'>
+            <PerformanceHealthPanel />
+          </CardStaggerItem>
           <CardStaggerItem>
             <ApiInfoPanel />
           </CardStaggerItem>

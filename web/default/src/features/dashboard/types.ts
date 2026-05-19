@@ -133,3 +133,87 @@ export interface FAQItem {
   question: string
   answer: string
 }
+
+export interface DashboardModelDistributionItem {
+  model_name: string
+  request_count: number
+  token_used: number
+  percentage: number
+}
+
+export interface DashboardHealthModelItem {
+  model_name: string
+  success_rate: number
+  avg_latency_ms: number
+  avg_tps: number
+  request_count: number
+}
+
+export interface DashboardSiteOverview {
+  total_tokens: number
+  total_requests: number
+  avg_rpm: number
+  avg_tpm: number
+  window_hours: number
+  health: {
+    success_rate: number
+    avg_latency_ms: number
+    avg_tps: number
+    top_models: DashboardHealthModelItem[]
+  }
+  model_distribution: DashboardModelDistributionItem[]
+}
+
+export interface DashboardUserRankingItem {
+  rank: number
+  username: string
+  display_name: string
+  total_tokens: number
+  request_count: number
+}
+
+export interface DashboardCPAChannelItem {
+  id: number
+  name: string
+  type: number
+  status: number
+}
+
+export interface DashboardCPAQuotaWindow {
+  used_percent: number
+  remaining_percent: number
+  reset_at?: number
+  reset_after_seconds?: number
+  limit_window_seconds?: number
+}
+
+export interface DashboardCPAQuotaAccount {
+  name: string
+  email?: string
+  account?: string
+  auth_index?: number
+  status?: number
+  status_message?: string
+  plan_type?: string
+  last_refresh_at?: number
+  next_retry_after?: number
+  account_expires_at?: number
+  account_remaining_seconds?: number
+  five_hour_window?: DashboardCPAQuotaWindow
+  weekly_window?: DashboardCPAQuotaWindow
+  error?: string
+}
+
+export interface DashboardCPAQuotaData {
+  configured: boolean
+  channels_configured: boolean
+  message?: string
+  channels: DashboardCPAChannelItem[]
+  summary: {
+    total_accounts: number
+    available_accounts: number
+    exhausted_accounts: number
+    error_accounts: number
+  }
+  accounts: DashboardCPAQuotaAccount[]
+}

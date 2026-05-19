@@ -32,6 +32,9 @@ const defaultOperationsSettings: OperationsSettings = {
   DefaultCollapseSidebar: false,
   DemoSiteEnabled: false,
   SelfUseModeEnabled: false,
+  'console_setting.cpa_base_url': '',
+  'console_setting.cpa_management_key': '',
+  'console_setting.cpa_channel_ids': '[]',
   ChannelDisableThreshold: '',
   QuotaRemindThreshold: '',
   AutomaticDisableChannelEnabled: false,
@@ -90,6 +93,7 @@ export function OperationsSettings() {
 
   const activeSection = (params?.section ?? OPERATIONS_DEFAULT_SECTION) as
     | 'behavior'
+    | 'cpa'
     | 'monitoring'
     | 'email'
     | 'worker'
