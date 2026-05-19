@@ -4527,6 +4527,11 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "24h tokens": "Токены за 24 ч",
+    "24h requests": "Запросы за 24 ч",
+    "Site uptime": "Время работы сайта",
+    "Since process start": "С момента запуска процесса",
+    "Cyber Rice Bucket leaderboard": "Кибер-рейтинг прожорливости"
   }
 }

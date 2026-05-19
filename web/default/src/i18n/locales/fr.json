@@ -4527,6 +4527,11 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "24h tokens": "Tokens sur 24 h",
+    "24h requests": "Requetes sur 24 h",
+    "Site uptime": "Temps de fonctionnement du site",
+    "Since process start": "Depuis le demarrage du processus",
+    "Cyber Rice Bucket leaderboard": "Classement des gros consommateurs cyber"
   }
 }

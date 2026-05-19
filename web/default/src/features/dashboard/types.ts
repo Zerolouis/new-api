@@ -152,6 +152,9 @@ export interface DashboardHealthModelItem {
 export interface DashboardSiteOverview {
   total_tokens: number
   total_requests: number
+  recent_tokens: number
+  recent_requests: number
+  site_uptime_seconds: number
   avg_rpm: number
   avg_tpm: number
   window_hours: number
@@ -191,8 +194,8 @@ export interface DashboardCPAQuotaAccount {
   name: string
   email?: string
   account?: string
-  auth_index?: number
-  status?: number
+  auth_index?: string
+  status?: string
   status_message?: string
   plan_type?: string
   last_refresh_at?: number

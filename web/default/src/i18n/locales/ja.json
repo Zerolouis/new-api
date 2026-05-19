@@ -4527,6 +4527,11 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "24h tokens": "24時間のトークン数",
+    "24h requests": "24時間のリクエスト数",
+    "Site uptime": "サイト稼働時間",
+    "Since process start": "プロセス起動以降",
+    "Cyber Rice Bucket leaderboard": "サイバー大食いランキング"
   }
 }

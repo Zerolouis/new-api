@@ -25,6 +25,9 @@ const (
 type DashboardSiteOverview struct {
 	TotalTokens       int64                            `json:"total_tokens"`
 	TotalRequests     int64                            `json:"total_requests"`
+	RecentTokens      int64                            `json:"recent_tokens"`
+	RecentRequests    int64                            `json:"recent_requests"`
+	SiteUptimeSeconds int64                            `json:"site_uptime_seconds"`
 	AvgRPM            float64                          `json:"avg_rpm"`
 	AvgTPM            float64                          `json:"avg_tpm"`
 	WindowHours       int                              `json:"window_hours"`
@@ -89,8 +92,8 @@ type DashboardCPAQuotaAccount struct {
 	Name                    string                   `json:"name"`
 	Email                   string                   `json:"email,omitempty"`
 	Account                 string                   `json:"account,omitempty"`
-	AuthIndex               int                      `json:"auth_index,omitempty"`
-	Status                  int                      `json:"status,omitempty"`
+	AuthIndex               string                   `json:"auth_index,omitempty"`
+	Status                  string                   `json:"status,omitempty"`
 	StatusMessage           string                   `json:"status_message,omitempty"`
 	PlanType                string                   `json:"plan_type,omitempty"`
 	LastRefreshAt           int64                    `json:"last_refresh_at,omitempty"`
@@ -123,7 +126,6 @@ type cpaSettings struct {
 	ManagementKey     string
 	ChannelIDs        []int
 	ManagementBaseURL string
-	PublicBaseURL     string
 }
 
 type cpaAuthFilesResponse struct {
@@ -135,8 +137,8 @@ type cpaAuthFileEntry struct {
 	Provider       string          `json:"provider"`
 	Email          string          `json:"email"`
 	Account        string          `json:"account"`
-	AuthIndex      int             `json:"auth_index"`
-	Status         int             `json:"status"`
+	AuthIndex      any             `json:"auth_index"`
+	Status         any             `json:"status"`
 	StatusMessage  string          `json:"status_message"`
 	LastRefresh    any             `json:"last_refresh"`
 	NextRetryAfter any             `json:"next_retry_after"`
@@ -178,45 +180,6 @@ type codexUsagePayload struct {
 	RateLimit *codexRateLimit `json:"rate_limit"`
 }
 
-type cpaPublicStatusResponse struct {
-	Summary   cpaPublicStatusSummary     `json:"summary"`
-	Aggregate cpaPublicStatusAggregate   `json:"aggregate"`
-	Quotas    []cpaPublicStatusQuotaItem `json:"quotas"`
-}
-
-type cpaPublicStatusSummary struct {
-	TotalAccounts    int `json:"total_accounts"`
-	ActiveAccounts   int `json:"active_accounts"`
-	DisabledAccounts int `json:"disabled_accounts"`
-	ExpiredAccounts  int `json:"expired_accounts"`
-	QuotaReady       int `json:"quota_ready"`
-}
-
-type cpaPublicStatusAggregate struct {
-	FiveHour *cpaPublicStatusQuotaWindow `json:"five_hour"`
-	Weekly   *cpaPublicStatusQuotaWindow `json:"weekly"`
-}
-
-type cpaPublicStatusQuotaItem struct {
-	ID                  string                      `json:"id"`
-	DisplayName         string                      `json:"display_name"`
-	Status              string                      `json:"status"`
-	StatusMessage       string                      `json:"status_message"`
-	PlanType            string                      `json:"plan_type"`
-	SubscriptionEndsAt  any                         `json:"subscription_ends_at"`
-	SubscriptionExpired bool                        `json:"subscription_expired"`
-	FiveHour            *cpaPublicStatusQuotaWindow `json:"five_hour"`
-	Weekly              *cpaPublicStatusQuotaWindow `json:"weekly"`
-}
-
-type cpaPublicStatusQuotaWindow struct {
-	UsedPercent        float64 `json:"used_percent"`
-	RemainingPercent   float64 `json:"remaining_percent"`
-	ResetAt            any     `json:"reset_at"`
-	ResetAfterSeconds  int64   `json:"reset_after_seconds"`
-	LimitWindowSeconds int64   `json:"limit_window_seconds"`
-}
-
 func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
 	totalTotals, err := model.GetDashboardSiteTotals(0, 0)
 	if err != nil {
@@ -235,7 +198,7 @@ func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
 		return nil, err
 	}
 
-	distributionRows, err := model.GetDashboardModelDistribution(0, 0, 12)
+	distributionRows, err := model.GetDashboardModelDistribution(0, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -299,6 +262,9 @@ func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
 	return &DashboardSiteOverview{
 		TotalTokens:       totalTotals.TotalTokens,
 		TotalRequests:     totalTotals.TotalRequests,
+		RecentTokens:      recentTotals.TotalTokens,
+		RecentRequests:    recentTotals.TotalRequests,
+		SiteUptimeSeconds: maxInt64(0, time.Now().Unix()-common.StartTime),
 		AvgRPM:            float64(recentTotals.TotalRequests) / windowMinutes,
 		AvgTPM:            float64(recentTotals.TotalTokens) / windowMinutes,
 		WindowHours:       dashboardPerfWindowHours,
@@ -345,27 +311,11 @@ func GetDashboardCPAQuotaData(ctx context.Context) DashboardCPAQuotaData {
 	result.Configured = true
 	files, err := fetchCPAAuthFiles(ctx, settings)
 	if err != nil {
-		if fallback, fallbackErr := fetchCPAPublicStatusQuotaData(ctx, settings); fallbackErr == nil {
-			fallback.ChannelsConfigured = result.ChannelsConfigured
-			fallback.Channels = result.Channels
-			if len(fallback.Channels) == 0 && len(settings.ChannelIDs) > 0 {
-				fallback.Message = "Configured CPA channels were not found"
-			}
-			return fallback
-		}
 		result.Message = err.Error()
 		return result
 	}
 
 	if len(files) == 0 {
-		if fallback, fallbackErr := fetchCPAPublicStatusQuotaData(ctx, settings); fallbackErr == nil {
-			fallback.ChannelsConfigured = result.ChannelsConfigured
-			fallback.Channels = result.Channels
-			if len(fallback.Channels) == 0 && len(settings.ChannelIDs) > 0 {
-				fallback.Message = "Configured CPA channels were not found"
-			}
-			return fallback
-		}
 		result.Message = "No Codex accounts found in CPA"
 		return result
 	}
@@ -427,39 +377,23 @@ func getCPASettings() cpaSettings {
 	common.OptionMapRWMutex.RUnlock()
 	settings.ChannelIDs = parseCPAChannelIDs(rawChannelIDs)
 	settings.ManagementBaseURL = normalizeCPAManagementBaseURL(settings.BaseURL)
-	settings.PublicBaseURL = normalizeCPAPublicBaseURL(settings.BaseURL)
 	return settings
 }
 
 func normalizeCPAManagementBaseURL(rawBaseURL string) string {
-	baseURL := normalizeCPAPublicBaseURL(rawBaseURL)
-	if baseURL == "" {
-		return ""
-	}
-	lowerBaseURL := strings.ToLower(baseURL)
-	if strings.HasSuffix(lowerBaseURL, "/v0/management") {
-		return baseURL
-	}
-	return strings.TrimRight(baseURL, "/") + "/v0/management"
-}
-
-func normalizeCPAPublicBaseURL(rawBaseURL string) string {
 	baseURL := strings.TrimRight(strings.TrimSpace(rawBaseURL), "/")
 	if baseURL == "" {
 		return ""
 	}
 	lowerBaseURL := strings.ToLower(baseURL)
-	for {
-		switch {
-		case strings.HasSuffix(lowerBaseURL, "/management.html"):
-			baseURL = strings.TrimRight(baseURL[:len(baseURL)-len("/management.html")], "/")
-		case strings.HasSuffix(lowerBaseURL, "/v0/management"):
-			baseURL = strings.TrimRight(baseURL[:len(baseURL)-len("/v0/management")], "/")
-		default:
-			return baseURL
-		}
+	for strings.HasSuffix(lowerBaseURL, "/management.html") {
+		baseURL = strings.TrimRight(baseURL[:len(baseURL)-len("/management.html")], "/")
 		lowerBaseURL = strings.ToLower(baseURL)
 	}
+	if strings.HasSuffix(lowerBaseURL, "/v0/management") {
+		return baseURL
+	}
+	return strings.TrimRight(baseURL, "/") + "/v0/management"
 }
 
 func parseCPAChannelIDs(raw string) []int {
@@ -499,6 +433,28 @@ func parseCPAChannelIDValue(value any) (int, bool) {
 		return id, true
 	default:
 		return 0, false
+	}
+}
+
+func stringifyCPAValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		if math.Trunc(v) == v {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case bool:
+		return strconv.FormatBool(v)
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
 	}
 }
 
@@ -588,8 +544,8 @@ func fetchSingleCPAQuotaAccount(ctx context.Context, settings cpaSettings, entry
 		Name:             entry.Name,
 		Email:            entry.Email,
 		Account:          entry.Account,
-		AuthIndex:        entry.AuthIndex,
-		Status:           entry.Status,
+		AuthIndex:        stringifyCPAValue(entry.AuthIndex),
+		Status:           stringifyCPAValue(entry.Status),
 		StatusMessage:    entry.StatusMessage,
 		PlanType:         strings.TrimSpace(entry.IDToken.PlanType),
 		LastRefreshAt:    parseAnyUnixTime(entry.LastRefresh),
@@ -700,120 +656,6 @@ func downloadCPACodexAuthFile(ctx context.Context, settings cpaSettings, name st
 		return nil, err
 	}
 	return &payload, nil
-}
-
-func fetchCPAPublicStatusQuotaData(ctx context.Context, settings cpaSettings) (DashboardCPAQuotaData, error) {
-	result := DashboardCPAQuotaData{
-		Configured: true,
-		Accounts:   make([]DashboardCPAQuotaAccount, 0),
-	}
-	publicBaseURL := strings.TrimRight(settings.PublicBaseURL, "/")
-	if publicBaseURL == "" {
-		return result, fmt.Errorf("CPA is not configured")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, publicBaseURL+"/api/v1/public/status", nil)
-	if err != nil {
-		return result, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := GetHttpClient().Do(req)
-	if err != nil {
-		return result, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return result, fmt.Errorf("failed to fetch CPA public status: status=%d", resp.StatusCode)
-	}
-
-	var payload cpaPublicStatusResponse
-	if err := common.DecodeJson(resp.Body, &payload); err != nil {
-		return result, err
-	}
-
-	accounts := make([]DashboardCPAQuotaAccount, 0, len(payload.Quotas))
-	for index, quota := range payload.Quotas {
-		account := mapCPAPublicStatusQuotaAccount(index, quota)
-		accounts = append(accounts, account)
-	}
-	result.Accounts = accounts
-	result.Summary = summarizeCPAPublicStatus(payload, accounts)
-	return result, nil
-}
-
-func mapCPAPublicStatusQuotaAccount(index int, quota cpaPublicStatusQuotaItem) DashboardCPAQuotaAccount {
-	name := strings.TrimSpace(quota.ID)
-	if name == "" {
-		name = fmt.Sprintf("quota-%d", index+1)
-	}
-	expiresAt := parseAnyUnixTime(quota.SubscriptionEndsAt)
-	account := DashboardCPAQuotaAccount{
-		Name:             name,
-		Email:            strings.TrimSpace(quota.DisplayName),
-		Account:          name,
-		AuthIndex:        index + 1,
-		StatusMessage:    strings.TrimSpace(quota.StatusMessage),
-		PlanType:         strings.TrimSpace(quota.PlanType),
-		AccountExpiresAt: expiresAt,
-		FiveHourWindow:   mapCPAPublicStatusQuotaWindow(quota.FiveHour),
-		WeeklyWindow:     mapCPAPublicStatusQuotaWindow(quota.Weekly),
-	}
-	if expiresAt > 0 {
-		account.AccountRemainingSeconds = maxInt64(0, expiresAt-time.Now().Unix())
-	}
-	if quota.SubscriptionExpired && account.StatusMessage == "" {
-		account.StatusMessage = "subscription expired"
-	}
-	if account.FiveHourWindow == nil && account.WeeklyWindow == nil && strings.TrimSpace(quota.StatusMessage) != "" {
-		account.Error = strings.TrimSpace(quota.StatusMessage)
-	}
-	return account
-}
-
-func mapCPAPublicStatusQuotaWindow(window *cpaPublicStatusQuotaWindow) *DashboardCPAQuotaWindow {
-	if window == nil {
-		return nil
-	}
-	return &DashboardCPAQuotaWindow{
-		UsedPercent:        clampPercent(window.UsedPercent),
-		RemainingPercent:   clampPercent(window.RemainingPercent),
-		ResetAt:            parseAnyUnixTime(window.ResetAt),
-		ResetAfterSeconds:  window.ResetAfterSeconds,
-		LimitWindowSeconds: window.LimitWindowSeconds,
-	}
-}
-
-func summarizeCPAPublicStatus(payload cpaPublicStatusResponse, accounts []DashboardCPAQuotaAccount) DashboardCPAQuotaSummary {
-	if payload.Summary.TotalAccounts > 0 || payload.Summary.QuotaReady > 0 {
-		total := payload.Summary.TotalAccounts
-		available := payload.Summary.QuotaReady
-		exhausted := payload.Summary.ExpiredAccounts
-		if total == 0 {
-			total = len(accounts)
-		}
-		if available == 0 {
-			for _, account := range accounts {
-				if account.Error == "" && !isCPAAccountExhausted(account) {
-					available++
-				}
-			}
-		}
-		if exhausted == 0 {
-			for _, account := range accounts {
-				if account.Error == "" && isCPAAccountExhausted(account) {
-					exhausted++
-				}
-			}
-		}
-		errorAccounts := maxInt64(0, int64(total-available-exhausted))
-		return DashboardCPAQuotaSummary{
-			TotalAccounts:     total,
-			AvailableAccounts: available,
-			ExhaustedAccounts: exhausted,
-			ErrorAccounts:     int(errorAccounts),
-		}
-	}
-	return summarizeCPAQuotaAccounts(accounts)
 }
 
 func summarizeCPAQuotaAccounts(accounts []DashboardCPAQuotaAccount) DashboardCPAQuotaSummary {

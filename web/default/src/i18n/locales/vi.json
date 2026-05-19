@@ -4527,6 +4527,11 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "24h tokens": "Token trong 24 giờ",
+    "24h requests": "Yêu cầu trong 24 giờ",
+    "Site uptime": "Thời gian chạy của trang",
+    "Since process start": "Kể từ khi tiến trình khởi động",
+    "Cyber Rice Bucket leaderboard": "Bảng xếp hạng tiêu thụ Cyber"
   }
 }

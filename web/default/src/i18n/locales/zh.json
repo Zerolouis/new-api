@@ -4527,6 +4527,11 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "24h tokens": "最近24小时 Token",
+    "24h requests": "最近24小时请求数",
+    "Site uptime": "站点已运行时间",
+    "Since process start": "自进程启动以来",
+    "Cyber Rice Bucket leaderboard": "赛博饭桶榜"
   }
 }
