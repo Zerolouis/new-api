@@ -314,6 +314,7 @@ func SetApiRouter(router *gin.Engine) {
 			dashboardRoute.GET("/site-overview", controller.GetDashboardSiteOverview)
 			dashboardRoute.GET("/user-rankings", controller.GetDashboardUserRankings)
 			dashboardRoute.GET("/cpa-quotas", controller.GetDashboardCPAQuotas)
+			dashboardRoute.POST("/cpa-quotas/refresh-status", controller.RefreshDashboardCPAQuotaStatus)
 		}
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())

@@ -1,6 +1,11 @@
 package service
 
-import "testing"
+import (
+	"math"
+	"testing"
+
+	"github.com/QuantumNous/new-api/model"
+)
 
 func TestMaskDashboardUsername(t *testing.T) {
 	testCases := []struct {
@@ -45,62 +50,64 @@ func TestParseDashboardPeriod(t *testing.T) {
 	}
 }
 
-func TestNormalizeCPAURLs(t *testing.T) {
+func TestNormalizeCPAManagementBaseURL(t *testing.T) {
 	testCases := []struct {
-		input          string
-		publicBase     string
-		managementBase string
+		input    string
+		expected string
 	}{
-		{
-			input:          "http://example.com:18789/management.html",
-			publicBase:     "http://example.com:18789",
-			managementBase: "http://example.com:18789/v0/management",
-		},
-		{
-			input:          "http://example.com:18789/v0/management",
-			publicBase:     "http://example.com:18789",
-			managementBase: "http://example.com:18789/v0/management",
-		},
-		{
-			input:          " http://example.com:18789/ ",
-			publicBase:     "http://example.com:18789",
-			managementBase: "http://example.com:18789/v0/management",
-		},
+		{input: "http://example.com:18789/management.html", expected: "http://example.com:18789/v0/management"},
+		{input: "http://example.com:18789/v0/management", expected: "http://example.com:18789/v0/management"},
+		{input: " http://example.com:18789/ ", expected: "http://example.com:18789/v0/management"},
 	}
 
 	for _, testCase := range testCases {
-		if actual := normalizeCPAPublicBaseURL(testCase.input); actual != testCase.publicBase {
-			t.Fatalf("normalizeCPAPublicBaseURL(%q) = %q, want %q", testCase.input, actual, testCase.publicBase)
-		}
-		if actual := normalizeCPAManagementBaseURL(testCase.input); actual != testCase.managementBase {
-			t.Fatalf("normalizeCPAManagementBaseURL(%q) = %q, want %q", testCase.input, actual, testCase.managementBase)
+		if actual := normalizeCPAManagementBaseURL(testCase.input); actual != testCase.expected {
+			t.Fatalf("normalizeCPAManagementBaseURL(%q) = %q, want %q", testCase.input, actual, testCase.expected)
 		}
 	}
 }
 
-func TestMapCPAPublicStatusQuotaAccount(t *testing.T) {
-	account := mapCPAPublicStatusQuotaAccount(0, cpaPublicStatusQuotaItem{
-		ID:                 "quota-1",
-		DisplayName:        "te**st@example.com",
-		Status:             "active",
-		PlanType:           "plus",
-		SubscriptionEndsAt: "2026-06-01T00:00:00Z",
-		FiveHour: &cpaPublicStatusQuotaWindow{
-			UsedPercent:        40,
-			RemainingPercent:   60,
-			ResetAt:            "2026-05-19T12:00:00Z",
-			ResetAfterSeconds:  3600,
-			LimitWindowSeconds: 18000,
-		},
-	})
+func TestStringifyCPAValue(t *testing.T) {
+	if actual := stringifyCPAValue("f02086ab66bf69d9"); actual != "f02086ab66bf69d9" {
+		t.Fatalf("string auth_index = %q", actual)
+	}
+	if actual := stringifyCPAValue(float64(12)); actual != "12" {
+		t.Fatalf("numeric auth_index = %q", actual)
+	}
+}
 
-	if account.Name != "quota-1" || account.Email != "te**st@example.com" || account.PlanType != "plus" {
-		t.Fatalf("unexpected account identity: %+v", account)
+func TestBuildDashboardCacheHitSnapshot(t *testing.T) {
+	rows := []model.DashboardCacheHitLogRow{
+		{PromptTokens: 100, CompletionTokens: 50, Other: `{"cache_tokens":30}`},
+		{PromptTokens: 40, CompletionTokens: 10, Other: `{"cache_tokens":"20"}`},
+		{PromptTokens: 25, CompletionTokens: 25, Other: `{"cache_tokens":0}`},
+		{PromptTokens: 10, CompletionTokens: 0, Other: `{bad json`},
 	}
-	if account.FiveHourWindow == nil || account.FiveHourWindow.RemainingPercent != 60 || account.FiveHourWindow.ResetAt == 0 {
-		t.Fatalf("unexpected quota window: %+v", account.FiveHourWindow)
+
+	actual := buildDashboardCacheHitSnapshot(rows)
+	if actual.CachedTokens != 50 {
+		t.Fatalf("CachedTokens = %d, want 50", actual.CachedTokens)
 	}
-	if account.Error != "" {
-		t.Fatalf("expected no account error, got %q", account.Error)
+	if actual.TotalTokens != 260 {
+		t.Fatalf("TotalTokens = %d, want 260", actual.TotalTokens)
+	}
+	if actual.RequestCount != 4 {
+		t.Fatalf("RequestCount = %d, want 4", actual.RequestCount)
+	}
+	wantRate := 50.0 / 260.0 * 100
+	if math.Abs(actual.HitRate-wantRate) > 0.000001 {
+		t.Fatalf("HitRate = %f, want %f", actual.HitRate, wantRate)
+	}
+}
+
+func TestBuildDashboardCacheHitSnapshotZeroTokens(t *testing.T) {
+	actual := buildDashboardCacheHitSnapshot([]model.DashboardCacheHitLogRow{
+		{Other: `{"cache_tokens":20}`},
+	})
+	if actual.HitRate != 0 {
+		t.Fatalf("HitRate = %f, want 0", actual.HitRate)
+	}
+	if actual.CachedTokens != 20 {
+		t.Fatalf("CachedTokens = %d, want 20", actual.CachedTokens)
 	}
 }

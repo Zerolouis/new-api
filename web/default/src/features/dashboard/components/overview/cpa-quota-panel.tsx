@@ -16,15 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Clock3, KeyRound, RefreshCcw, ServerCog } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  AlertCircle,
+  Clock3,
+  KeyRound,
+  RefreshCcw,
+  ServerCog,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatCompactNumber, formatNumber, formatTimestampToDate } from '@/lib/format'
+import { toast } from 'sonner'
+import {
+  formatCompactNumber,
+  formatNumber,
+  formatTimestampToDate,
+} from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getDashboardCPAQuotas } from '@/features/dashboard/api'
+import {
+  getDashboardCPAQuotas,
+  refreshDashboardCPAQuotaStatus,
+} from '@/features/dashboard/api'
 import type {
   DashboardCPAQuotaAccount,
   DashboardCPAQuotaWindow,
@@ -32,23 +48,60 @@ import type {
 
 export function CpaQuotaPanel() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const quotaQuery = useQuery({
     queryKey: ['dashboard', 'cpa-quotas'],
     queryFn: getDashboardCPAQuotas,
     staleTime: 60 * 1000,
     retry: false,
   })
+  const refreshMutation = useMutation({
+    mutationFn: refreshDashboardCPAQuotaStatus,
+    onSuccess: (res) => {
+      queryClient.setQueryData(['dashboard', 'cpa-quotas'], res)
+      toast.success(t('CPA status refreshed'))
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Failed to refresh CPA status')
+      )
+    },
+  })
 
   const data = quotaQuery.data?.data
+  const refreshing = refreshMutation.isPending
 
   return (
     <section className='bg-card overflow-hidden rounded-2xl border shadow-xs'>
       <div className='flex items-center gap-2 border-b px-4 py-3 sm:px-5'>
-        <ServerCog className='text-muted-foreground/60 size-4 shrink-0' aria-hidden='true' />
-        <h3 className='text-sm font-semibold'>{t('CLI Proxy API quota preview')}</h3>
+        <ServerCog
+          className='text-muted-foreground/60 size-4 shrink-0'
+          aria-hidden='true'
+        />
+        <h3 className='text-sm font-semibold'>
+          {t('CLI Proxy API quota preview')}
+        </h3>
         <span className='text-muted-foreground ml-auto text-xs'>
           {t('Codex account windows from CPA management')}
         </span>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={() => refreshMutation.mutate()}
+          disabled={
+            refreshing || quotaQuery.isLoading || data?.configured === false
+          }
+          className='gap-1.5'
+        >
+          <RefreshCcw
+            className={cn('size-3.5', refreshing && 'animate-spin')}
+            aria-hidden='true'
+          />
+          {t('Refresh CPA status')}
+        </Button>
       </div>
 
       <div className='space-y-4 p-4 sm:p-5'>
@@ -66,14 +119,19 @@ export function CpaQuotaPanel() {
             icon={KeyRound}
             title={t('CPA is not configured')}
             description={
-              data?.message || t('Set the CPA base URL and management key in system settings first')
+              data?.message ||
+              t(
+                'Set the CPA base URL and management key in system settings first'
+              )
             }
           />
         ) : data.accounts.length === 0 ? (
           <EmptyState
             icon={AlertCircle}
             title={t('No Codex accounts were found')}
-            description={data.message || t('CPA returned no usable Codex auth files')}
+            description={
+              data.message || t('CPA returned no usable Codex auth files')
+            }
           />
         ) : (
           <>
@@ -103,7 +161,9 @@ export function CpaQuotaPanel() {
             <div className='flex flex-wrap items-center gap-2'>
               <Badge variant='outline'>
                 {data.channels_configured
-                  ? t('CPA channels: {{count}}', { count: data.channels.length })
+                  ? t('CPA channels: {{count}}', {
+                      count: data.channels.length,
+                    })
                   : t('CPA channels: Unset')}
               </Badge>
               {data.channels.map((channel) => (
@@ -112,7 +172,9 @@ export function CpaQuotaPanel() {
                 </Badge>
               ))}
               {data.message && (
-                <span className='text-muted-foreground text-xs'>{data.message}</span>
+                <span className='text-muted-foreground text-xs'>
+                  {data.message}
+                </span>
               )}
             </div>
 
@@ -139,7 +201,9 @@ function QuotaAccountCard(props: { account: DashboardCPAQuotaAccount }) {
     <div className='bg-background/70 space-y-3 rounded-xl border p-4'>
       <div className='flex items-start justify-between gap-3'>
         <div className='min-w-0'>
-          <div className='truncate text-sm font-semibold'>{account.email || account.name}</div>
+          <div className='truncate text-sm font-semibold'>
+            {account.email || account.name}
+          </div>
           <div className='text-muted-foreground truncate text-xs'>
             {account.account || account.name}
           </div>
@@ -184,7 +248,11 @@ function QuotaAccountCard(props: { account: DashboardCPAQuotaAccount }) {
           <span>{t('Auth #{{index}}', { index: account.auth_index })}</span>
         ) : null}
         {account.next_retry_after ? (
-          <span>{t('Retry at {{time}}', { time: formatOptionalTime(account.next_retry_after) })}</span>
+          <span>
+            {t('Retry at {{time}}', {
+              time: formatOptionalTime(account.next_retry_after),
+            })}
+          </span>
         ) : null}
         {account.status_message ? <span>{account.status_message}</span> : null}
       </div>
@@ -216,16 +284,14 @@ function QuotaWindowCard(props: {
           {formatNumber(props.window.remaining_percent)}%
         </span>
       </div>
-      <Progress
-        value={props.window.remaining_percent}
-        className='mt-2 gap-0'
-      />
+      <Progress value={props.window.remaining_percent} className='mt-2 gap-0' />
       <div className='text-muted-foreground mt-2 space-y-1 text-xs'>
         <div>
           {t('Refresh time')}: {formatOptionalTime(props.window.reset_at)}
         </div>
         <div>
-          {t('Remaining window')}: {formatRemainingDuration(props.window.reset_after_seconds, t)}
+          {t('Remaining window')}:{' '}
+          {formatRemainingDuration(props.window.reset_after_seconds, t)}
         </div>
       </div>
     </div>

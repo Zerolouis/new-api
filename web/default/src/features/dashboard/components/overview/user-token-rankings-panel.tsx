@@ -31,7 +31,7 @@ type RankingPeriod = 'all' | 'today' | 'week'
 
 export function UserTokenRankingsPanel() {
   const { t } = useTranslation()
-  const [period, setPeriod] = useState<RankingPeriod>('all')
+  const [period, setPeriod] = useState<RankingPeriod>('today')
 
   const rankingsQuery = useQuery({
     queryKey: ['dashboard', 'user-rankings', period],
@@ -43,16 +43,21 @@ export function UserTokenRankingsPanel() {
   const items = rankingsQuery.data?.data ?? []
 
   const periods: Array<{ key: RankingPeriod; label: string }> = [
-    { key: 'all', label: t('History') },
     { key: 'today', label: t('1 Day') },
     { key: 'week', label: t('7 Days') },
+    { key: 'all', label: t('History') },
   ]
 
   return (
     <section className='bg-card h-full overflow-hidden rounded-2xl border shadow-xs'>
       <div className='flex items-center gap-2 border-b px-4 py-3 sm:px-5'>
-        <Medal className='text-muted-foreground/60 size-4 shrink-0' aria-hidden='true' />
-        <h3 className='text-sm font-semibold'>{t('User token leaderboard')}</h3>
+        <Medal
+          className='text-muted-foreground/60 size-4 shrink-0'
+          aria-hidden='true'
+        />
+        <h3 className='text-sm font-semibold'>
+          {t('Cyber Rice Bucket leaderboard')}
+        </h3>
       </div>
 
       <div className='space-y-4 p-4 sm:p-5'>
@@ -124,7 +129,9 @@ export function UserTokenRankingsPanel() {
         <div className='text-muted-foreground flex items-center gap-2 text-xs'>
           <TrendingUp className='size-3.5 shrink-0' aria-hidden='true' />
           <span>
-            {t('Usernames are masked and rankings are sorted by token consumption')}
+            {t(
+              'Usernames are masked and rankings are sorted by token consumption'
+            )}
           </span>
         </div>
       </div>
