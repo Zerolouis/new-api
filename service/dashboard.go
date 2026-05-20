@@ -27,6 +27,7 @@ type DashboardSiteOverview struct {
 	TotalRequests     int64                            `json:"total_requests"`
 	RecentTokens      int64                            `json:"recent_tokens"`
 	RecentRequests    int64                            `json:"recent_requests"`
+	CacheHit24h       DashboardCacheHitSnapshot        `json:"cache_hit_24h"`
 	SiteUptimeSeconds int64                            `json:"site_uptime_seconds"`
 	AvgRPM            float64                          `json:"avg_rpm"`
 	AvgTPM            float64                          `json:"avg_tpm"`
@@ -40,6 +41,13 @@ type DashboardHealthSnapshot struct {
 	AvgLatencyMs int64                      `json:"avg_latency_ms"`
 	AvgTps       float64                    `json:"avg_tps"`
 	TopModels    []DashboardHealthModelItem `json:"top_models"`
+}
+
+type DashboardCacheHitSnapshot struct {
+	HitRate      float64 `json:"hit_rate"`
+	CachedTokens int64   `json:"cached_tokens"`
+	TotalTokens  int64   `json:"total_tokens"`
+	RequestCount int64   `json:"request_count"`
 }
 
 type DashboardHealthModelItem struct {
@@ -180,7 +188,7 @@ type codexUsagePayload struct {
 	RateLimit *codexRateLimit `json:"rate_limit"`
 }
 
-func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
+func GetDashboardSiteOverview(modelDistributionPeriodRaw string) (*DashboardSiteOverview, error) {
 	totalTotals, err := model.GetDashboardSiteTotals(0, 0)
 	if err != nil {
 		return nil, err
@@ -198,9 +206,24 @@ func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
 		return nil, err
 	}
 
-	distributionRows, err := model.GetDashboardModelDistribution(0, 0, 0)
+	cacheHit24h, err := getDashboardCacheHitSnapshot(startTs, endTs)
 	if err != nil {
 		return nil, err
+	}
+
+	distributionStartTs, distributionEndTs := resolveDashboardPeriodRange(parseDashboardPeriod(modelDistributionPeriodRaw))
+	distributionRows, err := model.GetDashboardModelDistribution(distributionStartTs, distributionEndTs, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	distributionTotalRequests := totalTotals.TotalRequests
+	if distributionStartTs > 0 || distributionEndTs > 0 {
+		distributionTotals, err := model.GetDashboardSiteTotals(distributionStartTs, distributionEndTs)
+		if err != nil {
+			return nil, err
+		}
+		distributionTotalRequests = distributionTotals.TotalRequests
 	}
 
 	modelDistribution := make([]DashboardModelDistributionItem, 0, len(distributionRows))
@@ -209,7 +232,7 @@ func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
 			ModelName:    row.ModelName,
 			RequestCount: row.RequestCount,
 			TokenUsed:    row.TokenUsed,
-			Percentage:   safePercent(float64(row.RequestCount), float64(totalTotals.TotalRequests)),
+			Percentage:   safePercent(float64(row.RequestCount), float64(distributionTotalRequests)),
 		})
 	}
 
@@ -264,6 +287,7 @@ func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
 		TotalRequests:     totalTotals.TotalRequests,
 		RecentTokens:      recentTotals.TotalTokens,
 		RecentRequests:    recentTotals.TotalRequests,
+		CacheHit24h:       cacheHit24h,
 		SiteUptimeSeconds: maxInt64(0, time.Now().Unix()-common.StartTime),
 		AvgRPM:            float64(recentTotals.TotalRequests) / windowMinutes,
 		AvgTPM:            float64(recentTotals.TotalTokens) / windowMinutes,
@@ -271,6 +295,64 @@ func GetDashboardSiteOverview() (*DashboardSiteOverview, error) {
 		Health:            health,
 		ModelDistribution: modelDistribution,
 	}, nil
+}
+
+func getDashboardCacheHitSnapshot(startTs int64, endTs int64) (DashboardCacheHitSnapshot, error) {
+	rows, err := model.GetDashboardCacheHitLogRows(startTs, endTs)
+	if err != nil {
+		return DashboardCacheHitSnapshot{}, err
+	}
+	return buildDashboardCacheHitSnapshot(rows), nil
+}
+
+func buildDashboardCacheHitSnapshot(rows []model.DashboardCacheHitLogRow) DashboardCacheHitSnapshot {
+	snapshot := DashboardCacheHitSnapshot{}
+	for _, row := range rows {
+		totalTokens := int64(row.PromptTokens + row.CompletionTokens)
+		if totalTokens > 0 {
+			snapshot.TotalTokens += totalTokens
+		}
+		snapshot.RequestCount++
+		cacheTokens := dashboardOtherInt64(row.Other, "cache_tokens")
+		if cacheTokens > 0 {
+			snapshot.CachedTokens += cacheTokens
+		}
+	}
+	snapshot.HitRate = safePercent(float64(snapshot.CachedTokens), float64(snapshot.TotalTokens))
+	return snapshot
+}
+
+func dashboardOtherInt64(other string, key string) int64 {
+	if strings.TrimSpace(other) == "" {
+		return 0
+	}
+	var values map[string]any
+	if err := common.UnmarshalJsonStr(other, &values); err != nil {
+		return 0
+	}
+	return dashboardAnyInt64(values[key])
+}
+
+func dashboardAnyInt64(value any) int64 {
+	switch v := value.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case float64:
+		if v <= 0 {
+			return 0
+		}
+		return int64(v)
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil || parsed < 0 {
+			return 0
+		}
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func GetDashboardUserTokenRankings(periodRaw string) ([]DashboardUserRankingItem, error) {

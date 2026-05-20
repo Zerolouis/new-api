@@ -141,6 +141,8 @@ export interface DashboardModelDistributionItem {
   percentage: number
 }
 
+export type DashboardModelDistributionPeriod = 'today' | 'week' | 'all'
+
 export interface DashboardHealthModelItem {
   model_name: string
   success_rate: number
@@ -149,11 +151,19 @@ export interface DashboardHealthModelItem {
   request_count: number
 }
 
+export interface DashboardCacheHitSnapshot {
+  hit_rate: number
+  cached_tokens: number
+  total_tokens: number
+  request_count: number
+}
+
 export interface DashboardSiteOverview {
   total_tokens: number
   total_requests: number
   recent_tokens: number
   recent_requests: number
+  cache_hit_24h: DashboardCacheHitSnapshot
   site_uptime_seconds: number
   avg_rpm: number
   avg_tpm: number

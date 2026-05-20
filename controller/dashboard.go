@@ -11,7 +11,7 @@ import (
 )
 
 func GetDashboardSiteOverview(c *gin.Context) {
-	data, err := service.GetDashboardSiteOverview()
+	data, err := service.GetDashboardSiteOverview(c.Query("model_distribution_period"))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -30,6 +30,12 @@ func GetDashboardUserRankings(c *gin.Context) {
 
 func GetDashboardCPAQuotas(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+	defer cancel()
+	common.ApiSuccess(c, service.GetDashboardCPAQuotaData(ctx))
+}
+
+func RefreshDashboardCPAQuotaStatus(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 	common.ApiSuccess(c, service.GetDashboardCPAQuotaData(ctx))
 }

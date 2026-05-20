@@ -1,6 +1,11 @@
 package service
 
-import "testing"
+import (
+	"math"
+	"testing"
+
+	"github.com/QuantumNous/new-api/model"
+)
 
 func TestMaskDashboardUsername(t *testing.T) {
 	testCases := []struct {
@@ -68,5 +73,41 @@ func TestStringifyCPAValue(t *testing.T) {
 	}
 	if actual := stringifyCPAValue(float64(12)); actual != "12" {
 		t.Fatalf("numeric auth_index = %q", actual)
+	}
+}
+
+func TestBuildDashboardCacheHitSnapshot(t *testing.T) {
+	rows := []model.DashboardCacheHitLogRow{
+		{PromptTokens: 100, CompletionTokens: 50, Other: `{"cache_tokens":30}`},
+		{PromptTokens: 40, CompletionTokens: 10, Other: `{"cache_tokens":"20"}`},
+		{PromptTokens: 25, CompletionTokens: 25, Other: `{"cache_tokens":0}`},
+		{PromptTokens: 10, CompletionTokens: 0, Other: `{bad json`},
+	}
+
+	actual := buildDashboardCacheHitSnapshot(rows)
+	if actual.CachedTokens != 50 {
+		t.Fatalf("CachedTokens = %d, want 50", actual.CachedTokens)
+	}
+	if actual.TotalTokens != 260 {
+		t.Fatalf("TotalTokens = %d, want 260", actual.TotalTokens)
+	}
+	if actual.RequestCount != 4 {
+		t.Fatalf("RequestCount = %d, want 4", actual.RequestCount)
+	}
+	wantRate := 50.0 / 260.0 * 100
+	if math.Abs(actual.HitRate-wantRate) > 0.000001 {
+		t.Fatalf("HitRate = %f, want %f", actual.HitRate, wantRate)
+	}
+}
+
+func TestBuildDashboardCacheHitSnapshotZeroTokens(t *testing.T) {
+	actual := buildDashboardCacheHitSnapshot([]model.DashboardCacheHitLogRow{
+		{Other: `{"cache_tokens":20}`},
+	})
+	if actual.HitRate != 0 {
+		t.Fatalf("HitRate = %f, want 0", actual.HitRate)
+	}
+	if actual.CachedTokens != 20 {
+		t.Fatalf("CachedTokens = %d, want 20", actual.CachedTokens)
 	}
 }

@@ -20,6 +20,12 @@ type DashboardUserRankingRow struct {
 	RequestCount int64  `json:"request_count"`
 }
 
+type DashboardCacheHitLogRow struct {
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	Other            string `json:"other"`
+}
+
 func GetDashboardSiteTotals(startTime int64, endTime int64) (DashboardSiteTotals, error) {
 	var totals DashboardSiteTotals
 	query := applyDashboardTimeRange(DB.Table("quota_data"), startTime, endTime)
@@ -53,6 +59,15 @@ func GetDashboardUserTokenRankings(startTime int64, endTime int64, limit int) ([
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
+	err := query.Find(&rows).Error
+	return rows, err
+}
+
+func GetDashboardCacheHitLogRows(startTime int64, endTime int64) ([]DashboardCacheHitLogRow, error) {
+	rows := make([]DashboardCacheHitLogRow, 0)
+	query := applyDashboardTimeRange(LOG_DB.Model(&Log{}), startTime, endTime).
+		Select("prompt_tokens, completion_tokens, other").
+		Where("type = ?", LogTypeConsume)
 	err := query.Find(&rows).Error
 	return rows, err
 }

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 import type {
   DashboardCPAQuotaData,
+  DashboardModelDistributionPeriod,
   DashboardSiteOverview,
   DashboardUserRankingItem,
   QuotaDataItem,
@@ -75,20 +76,25 @@ export async function getUptimeStatus() {
   return res.data
 }
 
-export async function getDashboardSiteOverview() {
+export async function getDashboardSiteOverview(params?: {
+  model_distribution_period?: DashboardModelDistributionPeriod
+}) {
   const res = await api.get<{ success: boolean; data: DashboardSiteOverview }>(
-    '/api/dashboard/site-overview'
+    '/api/dashboard/site-overview',
+    { params }
   )
   return res.data
 }
 
-export async function getDashboardUserRankings(period: 'all' | 'today' | 'week') {
-  const res = await api.get<{ success: boolean; data: DashboardUserRankingItem[] }>(
-    '/api/dashboard/user-rankings',
-    {
-      params: { period },
-    }
-  )
+export async function getDashboardUserRankings(
+  period: 'all' | 'today' | 'week'
+) {
+  const res = await api.get<{
+    success: boolean
+    data: DashboardUserRankingItem[]
+  }>('/api/dashboard/user-rankings', {
+    params: { period },
+  })
   return res.data
 }
 
@@ -96,5 +102,14 @@ export async function getDashboardCPAQuotas() {
   const res = await api.get<{ success: boolean; data: DashboardCPAQuotaData }>(
     '/api/dashboard/cpa-quotas'
   )
+  return res.data
+}
+
+export async function refreshDashboardCPAQuotaStatus() {
+  const res = await api.post<{
+    success: boolean
+    data: DashboardCPAQuotaData
+    message?: string
+  }>('/api/dashboard/cpa-quotas/refresh-status')
   return res.data
 }

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Clock3,
   Hash,
+  RadioTower,
   Timer,
   Zap,
 } from 'lucide-react'
@@ -36,17 +37,32 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getDashboardSiteOverview } from '@/features/dashboard/api'
+import type {
+  DashboardModelDistributionItem,
+  DashboardModelDistributionPeriod,
+} from '@/features/dashboard/types'
 
 const ICONS = [
   BarChart3,
   Hash,
   BarChart3,
   Hash,
+  RadioTower,
   CalendarClock,
   Clock3,
   Zap,
 ] as const
-const MODEL_DISTRIBUTION_PAGE_SIZE = 10
+const MODEL_DISTRIBUTION_PAGE_SIZE = 5
+const EMPTY_MODEL_DISTRIBUTION: DashboardModelDistributionItem[] = []
+
+const MODEL_DISTRIBUTION_PERIODS: Array<{
+  key: DashboardModelDistributionPeriod
+  labelKey: string
+}> = [
+  { key: 'today', labelKey: '24h' },
+  { key: 'week', labelKey: '7 Days' },
+  { key: 'all', labelKey: 'History' },
+]
 
 function modelHealthClass(rate: number): string {
   if (rate >= 99.9) return 'text-success'
@@ -79,34 +95,34 @@ function formatUptimeDuration(
 export function SiteOverviewPanel() {
   const { t } = useTranslation()
   const [modelPage, setModelPage] = useState(0)
+  const [modelDistributionPeriod, setModelDistributionPeriod] =
+    useState<DashboardModelDistributionPeriod>('all')
   const overviewQuery = useQuery({
-    queryKey: ['dashboard', 'site-overview'],
-    queryFn: getDashboardSiteOverview,
+    queryKey: ['dashboard', 'site-overview', modelDistributionPeriod],
+    queryFn: () =>
+      getDashboardSiteOverview({
+        model_distribution_period: modelDistributionPeriod,
+      }),
     staleTime: 60 * 1000,
     retry: false,
   })
 
   const data = overviewQuery.data?.data
-  const distribution = data?.model_distribution ?? []
+  const distribution = data?.model_distribution ?? EMPTY_MODEL_DISTRIBUTION
   const topHealthModels = data?.health.top_models ?? []
   const modelPageCount = Math.max(
     1,
     Math.ceil(distribution.length / MODEL_DISTRIBUTION_PAGE_SIZE)
   )
+  const safeModelPage = Math.min(modelPage, modelPageCount - 1)
   const pagedDistribution = useMemo(
     () =>
       distribution.slice(
-        modelPage * MODEL_DISTRIBUTION_PAGE_SIZE,
-        (modelPage + 1) * MODEL_DISTRIBUTION_PAGE_SIZE
+        safeModelPage * MODEL_DISTRIBUTION_PAGE_SIZE,
+        (safeModelPage + 1) * MODEL_DISTRIBUTION_PAGE_SIZE
       ),
-    [distribution, modelPage]
+    [distribution, safeModelPage]
   )
-
-  useEffect(() => {
-    if (modelPage >= modelPageCount) {
-      setModelPage(Math.max(0, modelPageCount - 1))
-    }
-  }, [modelPage, modelPageCount])
 
   const stats = [
     {
@@ -128,6 +144,11 @@ export function SiteOverviewPanel() {
       label: t('24h requests'),
       value: formatCompactNumber(data?.recent_requests),
       hint: t('Last {{hours}} hours', { hours: data?.window_hours ?? 24 }),
+    },
+    {
+      label: t('24h cache hit rate'),
+      value: formatPercent(data?.cache_hit_24h?.hit_rate),
+      hint: `${t('Cached tokens / total tokens')}: ${formatCompactNumber(data?.cache_hit_24h?.cached_tokens)} / ${formatCompactNumber(data?.cache_hit_24h?.total_tokens)}`,
     },
     {
       label: t('Site uptime'),
@@ -189,20 +210,42 @@ export function SiteOverviewPanel() {
 
         <div className='grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]'>
           <div className='space-y-3'>
-            <div className='flex items-center justify-between gap-2'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
               <div>
                 <div className='text-sm font-semibold'>
                   {t('Model call distribution')}
                 </div>
                 <div className='text-muted-foreground text-xs'>
-                  {t('Top models ranked by historical request share')}
+                  {t('Top models ranked by selected request share')}
                 </div>
               </div>
-              {!overviewQuery.isLoading && distribution.length > 0 && (
-                <span className='text-muted-foreground text-xs'>
-                  {t('{{count}} active models', { count: distribution.length })}
-                </span>
-              )}
+              <div className='flex shrink-0 flex-wrap items-center justify-end gap-2'>
+                {MODEL_DISTRIBUTION_PERIODS.map((item) => (
+                  <Button
+                    key={item.key}
+                    type='button'
+                    size='sm'
+                    variant={
+                      modelDistributionPeriod === item.key
+                        ? 'default'
+                        : 'outline'
+                    }
+                    onClick={() => {
+                      setModelDistributionPeriod(item.key)
+                      setModelPage(0)
+                    }}
+                  >
+                    {t(item.labelKey)}
+                  </Button>
+                ))}
+                {!overviewQuery.isLoading && distribution.length > 0 && (
+                  <span className='text-muted-foreground text-xs'>
+                    {t('{{count}} active models', {
+                      count: distribution.length,
+                    })}
+                  </span>
+                )}
+              </div>
             </div>
 
             {overviewQuery.isLoading ? (
@@ -258,14 +301,14 @@ export function SiteOverviewPanel() {
                       onClick={() =>
                         setModelPage((page) => Math.max(0, page - 1))
                       }
-                      disabled={modelPage === 0}
+                      disabled={safeModelPage === 0}
                       aria-label={t('Previous')}
                     >
                       <ChevronLeft className='size-4' aria-hidden='true' />
                     </Button>
                     <span className='text-muted-foreground text-xs'>
                       {t('Page {{current}} of {{total}}', {
-                        current: modelPage + 1,
+                        current: safeModelPage + 1,
                         total: modelPageCount,
                       })}
                     </span>
@@ -278,7 +321,7 @@ export function SiteOverviewPanel() {
                           Math.min(modelPageCount - 1, page + 1)
                         )
                       }
-                      disabled={modelPage >= modelPageCount - 1}
+                      disabled={safeModelPage >= modelPageCount - 1}
                       aria-label={t('Next')}
                     >
                       <ChevronRight className='size-4' aria-hidden='true' />
