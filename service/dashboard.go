@@ -14,26 +14,31 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 const (
 	dashboardPerfWindowHours = 24
 	dashboardRankingLimit    = 20
 	cpaCodexWhamBaseURL      = "https://chatgpt.com"
+
+	dashboardCodexAffinityRule  = "codex cli trace"
+	dashboardClaudeAffinityRule = "claude cli trace"
 )
 
 type DashboardSiteOverview struct {
-	TotalTokens       int64                            `json:"total_tokens"`
-	TotalRequests     int64                            `json:"total_requests"`
-	RecentTokens      int64                            `json:"recent_tokens"`
-	RecentRequests    int64                            `json:"recent_requests"`
-	CacheHit24h       DashboardCacheHitSnapshot        `json:"cache_hit_24h"`
-	SiteUptimeSeconds int64                            `json:"site_uptime_seconds"`
-	AvgRPM            float64                          `json:"avg_rpm"`
-	AvgTPM            float64                          `json:"avg_tpm"`
-	WindowHours       int                              `json:"window_hours"`
-	Health            DashboardHealthSnapshot          `json:"health"`
-	ModelDistribution []DashboardModelDistributionItem `json:"model_distribution"`
+	TotalTokens         int64                             `json:"total_tokens"`
+	TotalRequests       int64                             `json:"total_requests"`
+	RecentTokens        int64                             `json:"recent_tokens"`
+	RecentRequests      int64                             `json:"recent_requests"`
+	CacheHit24h         DashboardCacheHitSnapshot         `json:"cache_hit_24h"`
+	CacheHit24hByClient DashboardCacheHitByClientSnapshot `json:"cache_hit_24h_by_client"`
+	SiteUptimeSeconds   int64                             `json:"site_uptime_seconds"`
+	AvgRPM              float64                           `json:"avg_rpm"`
+	AvgTPM              float64                           `json:"avg_tpm"`
+	WindowHours         int                               `json:"window_hours"`
+	Health              DashboardHealthSnapshot           `json:"health"`
+	ModelDistribution   []DashboardModelDistributionItem  `json:"model_distribution"`
 }
 
 type DashboardHealthSnapshot struct {
@@ -47,6 +52,19 @@ type DashboardCacheHitSnapshot struct {
 	HitRate      float64 `json:"hit_rate"`
 	CachedTokens int64   `json:"cached_tokens"`
 	TotalTokens  int64   `json:"total_tokens"`
+	RequestCount int64   `json:"request_count"`
+}
+
+type DashboardCacheHitByClientSnapshot struct {
+	Codex      DashboardClientCacheHitSnapshot `json:"codex"`
+	ClaudeCode DashboardClientCacheHitSnapshot `json:"claude_code"`
+}
+
+type DashboardClientCacheHitSnapshot struct {
+	Configured   bool    `json:"configured"`
+	HitRate      float64 `json:"hit_rate"`
+	CachedTokens int64   `json:"cached_tokens"`
+	InputTokens  int64   `json:"input_tokens"`
 	RequestCount int64   `json:"request_count"`
 }
 
@@ -206,7 +224,7 @@ func GetDashboardSiteOverview(modelDistributionPeriodRaw string) (*DashboardSite
 		return nil, err
 	}
 
-	cacheHit24h, err := getDashboardCacheHitSnapshot(startTs, endTs)
+	cacheHit24h, cacheHit24hByClient, err := getDashboardCacheHitSnapshots(startTs, endTs)
 	if err != nil {
 		return nil, err
 	}
@@ -283,26 +301,32 @@ func GetDashboardSiteOverview(modelDistributionPeriodRaw string) (*DashboardSite
 
 	windowMinutes := float64(dashboardPerfWindowHours * 60)
 	return &DashboardSiteOverview{
-		TotalTokens:       totalTotals.TotalTokens,
-		TotalRequests:     totalTotals.TotalRequests,
-		RecentTokens:      recentTotals.TotalTokens,
-		RecentRequests:    recentTotals.TotalRequests,
-		CacheHit24h:       cacheHit24h,
-		SiteUptimeSeconds: maxInt64(0, time.Now().Unix()-common.StartTime),
-		AvgRPM:            float64(recentTotals.TotalRequests) / windowMinutes,
-		AvgTPM:            float64(recentTotals.TotalTokens) / windowMinutes,
-		WindowHours:       dashboardPerfWindowHours,
-		Health:            health,
-		ModelDistribution: modelDistribution,
+		TotalTokens:         totalTotals.TotalTokens,
+		TotalRequests:       totalTotals.TotalRequests,
+		RecentTokens:        recentTotals.TotalTokens,
+		RecentRequests:      recentTotals.TotalRequests,
+		CacheHit24h:         cacheHit24h,
+		CacheHit24hByClient: cacheHit24hByClient,
+		SiteUptimeSeconds:   maxInt64(0, time.Now().Unix()-common.StartTime),
+		AvgRPM:              float64(recentTotals.TotalRequests) / windowMinutes,
+		AvgTPM:              float64(recentTotals.TotalTokens) / windowMinutes,
+		WindowHours:         dashboardPerfWindowHours,
+		Health:              health,
+		ModelDistribution:   modelDistribution,
 	}, nil
 }
 
 func getDashboardCacheHitSnapshot(startTs int64, endTs int64) (DashboardCacheHitSnapshot, error) {
+	legacy, _, err := getDashboardCacheHitSnapshots(startTs, endTs)
+	return legacy, err
+}
+
+func getDashboardCacheHitSnapshots(startTs int64, endTs int64) (DashboardCacheHitSnapshot, DashboardCacheHitByClientSnapshot, error) {
 	rows, err := model.GetDashboardCacheHitLogRows(startTs, endTs)
 	if err != nil {
-		return DashboardCacheHitSnapshot{}, err
+		return DashboardCacheHitSnapshot{}, DashboardCacheHitByClientSnapshot{}, err
 	}
-	return buildDashboardCacheHitSnapshot(rows), nil
+	return buildDashboardCacheHitSnapshot(rows), buildDashboardCacheHitByClientSnapshot(rows, dashboardConfiguredAffinityRules()), nil
 }
 
 func buildDashboardCacheHitSnapshot(rows []model.DashboardCacheHitLogRow) DashboardCacheHitSnapshot {
@@ -322,15 +346,112 @@ func buildDashboardCacheHitSnapshot(rows []model.DashboardCacheHitLogRow) Dashbo
 	return snapshot
 }
 
-func dashboardOtherInt64(other string, key string) int64 {
+func buildDashboardCacheHitByClientSnapshot(rows []model.DashboardCacheHitLogRow, configuredRules map[string]bool) DashboardCacheHitByClientSnapshot {
+	snapshot := DashboardCacheHitByClientSnapshot{
+		Codex: DashboardClientCacheHitSnapshot{
+			Configured: configuredRules[dashboardCodexAffinityRule],
+		},
+		ClaudeCode: DashboardClientCacheHitSnapshot{
+			Configured: configuredRules[dashboardClaudeAffinityRule],
+		},
+	}
+
+	for _, row := range rows {
+		other, ok := dashboardOtherMap(row.Other)
+		if !ok {
+			continue
+		}
+		ruleName := dashboardAffinityRuleName(other)
+		switch ruleName {
+		case dashboardCodexAffinityRule:
+			if !snapshot.Codex.Configured {
+				continue
+			}
+			snapshot.Codex.RequestCount++
+			snapshot.Codex.CachedTokens += maxInt64(0, dashboardAnyInt64(other["cache_tokens"]))
+			snapshot.Codex.InputTokens += maxInt64(0, int64(row.PromptTokens))
+		case dashboardClaudeAffinityRule:
+			if !snapshot.ClaudeCode.Configured {
+				continue
+			}
+			cacheTokens := maxInt64(0, dashboardAnyInt64(other["cache_tokens"]))
+			cacheCreationTokens := dashboardCacheCreationTokens(other)
+			snapshot.ClaudeCode.RequestCount++
+			snapshot.ClaudeCode.CachedTokens += cacheTokens
+			snapshot.ClaudeCode.InputTokens += maxInt64(0, int64(row.PromptTokens)) + cacheTokens + cacheCreationTokens
+		}
+	}
+
+	snapshot.Codex.HitRate = safePercent(float64(snapshot.Codex.CachedTokens), float64(snapshot.Codex.InputTokens))
+	snapshot.ClaudeCode.HitRate = safePercent(float64(snapshot.ClaudeCode.CachedTokens), float64(snapshot.ClaudeCode.InputTokens))
+	return snapshot
+}
+
+func dashboardConfiguredAffinityRules() map[string]bool {
+	configured := map[string]bool{
+		dashboardCodexAffinityRule:  false,
+		dashboardClaudeAffinityRule: false,
+	}
+	setting := operation_setting.GetChannelAffinitySetting()
+	if setting == nil || !setting.Enabled {
+		return configured
+	}
+	for _, rule := range setting.Rules {
+		name := strings.TrimSpace(rule.Name)
+		if _, ok := configured[name]; ok {
+			configured[name] = true
+		}
+	}
+	return configured
+}
+
+func dashboardOtherMap(other string) (map[string]any, bool) {
 	if strings.TrimSpace(other) == "" {
-		return 0
+		return nil, false
 	}
 	var values map[string]any
 	if err := common.UnmarshalJsonStr(other, &values); err != nil {
+		return nil, false
+	}
+	return values, true
+}
+
+func dashboardOtherInt64(other string, key string) int64 {
+	values, ok := dashboardOtherMap(other)
+	if !ok {
 		return 0
 	}
 	return dashboardAnyInt64(values[key])
+}
+
+func dashboardAffinityRuleName(other map[string]any) string {
+	adminInfo, ok := dashboardAnyMap(other["admin_info"])
+	if !ok {
+		return ""
+	}
+	affinity, ok := dashboardAnyMap(adminInfo["channel_affinity"])
+	if !ok {
+		return ""
+	}
+	name, _ := affinity["rule_name"].(string)
+	return strings.TrimSpace(name)
+}
+
+func dashboardCacheCreationTokens(other map[string]any) int64 {
+	cacheCreationTokens := maxInt64(0, dashboardAnyInt64(other["cache_creation_tokens"]))
+	if cacheCreationTokens > 0 {
+		return cacheCreationTokens
+	}
+	return maxInt64(0, dashboardAnyInt64(other["cache_creation_tokens_5m"])) +
+		maxInt64(0, dashboardAnyInt64(other["cache_creation_tokens_1h"]))
+}
+
+func dashboardAnyMap(value any) (map[string]any, bool) {
+	values, ok := value.(map[string]any)
+	if ok {
+		return values, true
+	}
+	return nil, false
 }
 
 func dashboardAnyInt64(value any) int64 {

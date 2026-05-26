@@ -14,6 +14,7 @@
   "checkout.session.completed": "checkout.session.completed",
   "checkout.session.expired": "checkout.session.expired",
   "Claude": "Claude",
+  "Claude Code": "Claude Code",
   "Cloudflare": "Cloudflare",
   "Cohere": "Cohere",
   "Compliance confirmation required": "Compliance confirmation required",

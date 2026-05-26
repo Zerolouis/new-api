@@ -21,7 +21,6 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
   BarChart3,
-  CalendarClock,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -38,6 +37,7 @@ import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getDashboardSiteOverview } from '@/features/dashboard/api'
 import type {
+  DashboardClientCacheHitSnapshot,
   DashboardModelDistributionItem,
   DashboardModelDistributionPeriod,
 } from '@/features/dashboard/types'
@@ -48,7 +48,7 @@ const ICONS = [
   BarChart3,
   Hash,
   RadioTower,
-  CalendarClock,
+  RadioTower,
   Clock3,
   Zap,
 ] as const
@@ -70,26 +70,19 @@ function modelHealthClass(rate: number): string {
   return 'text-destructive'
 }
 
-function formatUptimeDuration(
-  seconds: number | null | undefined,
+function formatClientCacheRate(
+  snapshot: DashboardClientCacheHitSnapshot | undefined
+): string {
+  if (!snapshot?.configured || snapshot.input_tokens <= 0) return '-'
+  return formatPercent(snapshot.hit_rate)
+}
+
+function formatClientCacheHint(
+  snapshot: DashboardClientCacheHitSnapshot | undefined,
   t: (key: string, options?: Record<string, unknown>) => string
 ): string {
-  if (seconds == null || Number.isNaN(seconds) || seconds < 0) return '-'
-  if (seconds < 60) {
-    return t('{{value}}s', { value: Math.floor(seconds) })
-  }
-  const totalMinutes = Math.floor(seconds / 60)
-  const days = Math.floor(totalMinutes / 1440)
-  const hours = Math.floor((totalMinutes % 1440) / 60)
-  const minutes = totalMinutes % 60
-
-  if (days > 0) {
-    return t('{{days}}d {{hours}}h', { days, hours })
-  }
-  if (hours > 0) {
-    return t('{{hours}}h {{minutes}}m', { hours, minutes })
-  }
-  return t('{{minutes}}m', { minutes })
+  if (!snapshot?.configured) return t('Channel affinity rule not configured')
+  return `${t('Cached tokens / input tokens')}: ${formatCompactNumber(snapshot.cached_tokens)} / ${formatCompactNumber(snapshot.input_tokens)}`
 }
 
 export function SiteOverviewPanel() {
@@ -124,7 +117,13 @@ export function SiteOverviewPanel() {
     [distribution, safeModelPage]
   )
 
-  const stats = [
+  const cacheHitByClient = data?.cache_hit_24h_by_client
+
+  const stats: Array<{
+    label: string
+    value: string
+    hint: string
+  }> = [
     {
       label: t('Total tokens'),
       value: formatCompactNumber(data?.total_tokens),
@@ -146,14 +145,14 @@ export function SiteOverviewPanel() {
       hint: t('Last {{hours}} hours', { hours: data?.window_hours ?? 24 }),
     },
     {
-      label: t('24h cache hit rate'),
-      value: formatPercent(data?.cache_hit_24h?.hit_rate),
-      hint: `${t('Cached tokens / total tokens')}: ${formatCompactNumber(data?.cache_hit_24h?.cached_tokens)} / ${formatCompactNumber(data?.cache_hit_24h?.total_tokens)}`,
+      label: t('24h Codex cache hit rate'),
+      value: formatClientCacheRate(cacheHitByClient?.codex),
+      hint: formatClientCacheHint(cacheHitByClient?.codex, t),
     },
     {
-      label: t('Site uptime'),
-      value: formatUptimeDuration(data?.site_uptime_seconds, t),
-      hint: t('Since process start'),
+      label: t('24h Claude Code cache hit rate'),
+      value: formatClientCacheRate(cacheHitByClient?.claude_code),
+      hint: formatClientCacheHint(cacheHitByClient?.claude_code, t),
     },
     {
       label: t('Average RPM'),

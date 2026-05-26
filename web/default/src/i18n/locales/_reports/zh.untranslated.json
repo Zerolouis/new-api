@@ -15,6 +15,7 @@
   "checkout.session.completed": "checkout.session.completed",
   "checkout.session.expired": "checkout.session.expired",
   "Claude": "Claude",
+  "Claude Code": "Claude Code",
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Cloudflare": "Cloudflare",
