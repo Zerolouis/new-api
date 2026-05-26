@@ -111,3 +111,98 @@ func TestBuildDashboardCacheHitSnapshotZeroTokens(t *testing.T) {
 		t.Fatalf("CachedTokens = %d, want 20", actual.CachedTokens)
 	}
 }
+
+func TestBuildDashboardCacheHitByClientSnapshot(t *testing.T) {
+	rows := []model.DashboardCacheHitLogRow{
+		{
+			PromptTokens: 174295,
+			Other:        `{"admin_info":{"channel_affinity":{"rule_name":"codex cli trace"}},"cache_tokens":172928}`,
+		},
+		{
+			PromptTokens:     1,
+			CompletionTokens: 758,
+			Other:            `{"admin_info":{"channel_affinity":{"rule_name":"claude cli trace"}},"cache_tokens":83789,"cache_creation_tokens":856}`,
+		},
+		{
+			PromptTokens: 500,
+			Other:        `{"admin_info":{"channel_affinity":{"rule_name":"other rule"}},"cache_tokens":400}`,
+		},
+		{
+			PromptTokens: 100,
+			Other:        `{bad json`,
+		},
+		{
+			PromptTokens: 100,
+			Other:        `{"cache_tokens":90}`,
+		},
+	}
+
+	actual := buildDashboardCacheHitByClientSnapshot(rows, map[string]bool{
+		dashboardCodexAffinityRule:  true,
+		dashboardClaudeAffinityRule: true,
+	})
+
+	if !actual.Codex.Configured {
+		t.Fatal("Codex.Configured = false, want true")
+	}
+	if actual.Codex.CachedTokens != 172928 {
+		t.Fatalf("Codex.CachedTokens = %d, want 172928", actual.Codex.CachedTokens)
+	}
+	if actual.Codex.InputTokens != 174295 {
+		t.Fatalf("Codex.InputTokens = %d, want 174295", actual.Codex.InputTokens)
+	}
+	if actual.Codex.RequestCount != 1 {
+		t.Fatalf("Codex.RequestCount = %d, want 1", actual.Codex.RequestCount)
+	}
+	wantCodexRate := 172928.0 / 174295.0 * 100
+	if math.Abs(actual.Codex.HitRate-wantCodexRate) > 0.000001 {
+		t.Fatalf("Codex.HitRate = %f, want %f", actual.Codex.HitRate, wantCodexRate)
+	}
+
+	if !actual.ClaudeCode.Configured {
+		t.Fatal("ClaudeCode.Configured = false, want true")
+	}
+	if actual.ClaudeCode.CachedTokens != 83789 {
+		t.Fatalf("ClaudeCode.CachedTokens = %d, want 83789", actual.ClaudeCode.CachedTokens)
+	}
+	if actual.ClaudeCode.InputTokens != 84646 {
+		t.Fatalf("ClaudeCode.InputTokens = %d, want 84646", actual.ClaudeCode.InputTokens)
+	}
+	if actual.ClaudeCode.RequestCount != 1 {
+		t.Fatalf("ClaudeCode.RequestCount = %d, want 1", actual.ClaudeCode.RequestCount)
+	}
+	wantClaudeRate := 83789.0 / 84646.0 * 100
+	if math.Abs(actual.ClaudeCode.HitRate-wantClaudeRate) > 0.000001 {
+		t.Fatalf("ClaudeCode.HitRate = %f, want %f", actual.ClaudeCode.HitRate, wantClaudeRate)
+	}
+}
+
+func TestBuildDashboardCacheHitByClientSnapshotUnconfigured(t *testing.T) {
+	rows := []model.DashboardCacheHitLogRow{
+		{
+			PromptTokens: 100,
+			Other:        `{"admin_info":{"channel_affinity":{"rule_name":"codex cli trace"}},"cache_tokens":90}`,
+		},
+		{
+			PromptTokens: 100,
+			Other:        `{"admin_info":{"channel_affinity":{"rule_name":"claude cli trace"}},"cache_tokens":90}`,
+		},
+	}
+
+	actual := buildDashboardCacheHitByClientSnapshot(rows, map[string]bool{
+		dashboardCodexAffinityRule: true,
+	})
+
+	if !actual.Codex.Configured {
+		t.Fatal("Codex.Configured = false, want true")
+	}
+	if actual.Codex.RequestCount != 1 {
+		t.Fatalf("Codex.RequestCount = %d, want 1", actual.Codex.RequestCount)
+	}
+	if actual.ClaudeCode.Configured {
+		t.Fatal("ClaudeCode.Configured = true, want false")
+	}
+	if actual.ClaudeCode.RequestCount != 0 || actual.ClaudeCode.CachedTokens != 0 || actual.ClaudeCode.InputTokens != 0 || actual.ClaudeCode.HitRate != 0 {
+		t.Fatalf("ClaudeCode snapshot counted unconfigured logs: %+v", actual.ClaudeCode)
+	}
+}

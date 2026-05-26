@@ -158,12 +158,26 @@ export interface DashboardCacheHitSnapshot {
   request_count: number
 }
 
+export interface DashboardClientCacheHitSnapshot {
+  configured: boolean
+  hit_rate: number
+  cached_tokens: number
+  input_tokens: number
+  request_count: number
+}
+
+export interface DashboardCacheHitByClientSnapshot {
+  codex: DashboardClientCacheHitSnapshot
+  claude_code: DashboardClientCacheHitSnapshot
+}
+
 export interface DashboardSiteOverview {
   total_tokens: number
   total_requests: number
   recent_tokens: number
   recent_requests: number
   cache_hit_24h: DashboardCacheHitSnapshot
+  cache_hit_24h_by_client: DashboardCacheHitByClientSnapshot
   site_uptime_seconds: number
   avg_rpm: number
   avg_tpm: number
