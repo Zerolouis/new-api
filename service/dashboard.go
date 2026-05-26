@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 const (
@@ -219,7 +220,7 @@ func GetDashboardSiteOverview(modelDistributionPeriodRaw string) (*DashboardSite
 		return nil, err
 	}
 
-	perfSummary, err := perfmetrics.QuerySummaryAll(dashboardPerfWindowHours)
+	perfSummary, err := perfmetrics.QuerySummaryAll(dashboardPerfWindowHours, getDashboardActivePerfGroups())
 	if err != nil {
 		return nil, err
 	}
@@ -314,6 +315,15 @@ func GetDashboardSiteOverview(modelDistributionPeriodRaw string) (*DashboardSite
 		Health:              health,
 		ModelDistribution:   modelDistribution,
 	}, nil
+}
+
+func getDashboardActivePerfGroups() []string {
+	groupRatios := ratio_setting.GetGroupRatioCopy()
+	groups := make([]string, 0, len(groupRatios)+1)
+	for group := range groupRatios {
+		groups = append(groups, group)
+	}
+	return append(groups, "auto")
 }
 
 func getDashboardCacheHitSnapshot(startTs int64, endTs int64) (DashboardCacheHitSnapshot, error) {
