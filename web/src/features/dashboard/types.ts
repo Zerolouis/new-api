@@ -355,6 +355,7 @@ export interface DashboardCPAQuotaWindow {
 
 export interface DashboardCPAQuotaAccount {
   name: string
+  provider?: string
   email?: string
   account?: string
   auth_index?: string
@@ -367,6 +368,7 @@ export interface DashboardCPAQuotaAccount {
   account_remaining_seconds?: number
   five_hour_window?: DashboardCPAQuotaWindow
   weekly_window?: DashboardCPAQuotaWindow
+  monthly_window?: DashboardCPAQuotaWindow
   error?: string
 }
 

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMaskDashboardUsername(t *testing.T) {
@@ -205,4 +207,73 @@ func TestBuildDashboardCacheHitByClientSnapshotUnconfigured(t *testing.T) {
 	if actual.ClaudeCode.RequestCount != 0 || actual.ClaudeCode.CachedTokens != 0 || actual.ClaudeCode.InputTokens != 0 || actual.ClaudeCode.HitRate != 0 {
 		t.Fatalf("ClaudeCode snapshot counted unconfigured logs: %+v", actual.ClaudeCode)
 	}
+}
+
+func TestIsCPADashboardAuthFile(t *testing.T) {
+	testCases := []struct {
+		name     string
+		entry    cpaAuthFileEntry
+		included bool
+		provider string
+	}{
+		{
+			name:     "codex provider",
+			entry:    cpaAuthFileEntry{Provider: "codex"},
+			included: true,
+			provider: "codex",
+		},
+		{
+			name:     "xai provider",
+			entry:    cpaAuthFileEntry{Provider: "xai"},
+			included: true,
+			provider: "xai",
+		},
+		{
+			name:     "grok provider",
+			entry:    cpaAuthFileEntry{Provider: "Grok"},
+			included: true,
+			provider: "grok",
+		},
+		{
+			name:     "type fallback when provider empty",
+			entry:    cpaAuthFileEntry{Type: "xai"},
+			included: true,
+			provider: "xai",
+		},
+		{
+			name:     "provider wins over type",
+			entry:    cpaAuthFileEntry{Provider: "codex", Type: "claude"},
+			included: true,
+			provider: "codex",
+		},
+		{
+			name:     "claude excluded",
+			entry:    cpaAuthFileEntry{Provider: "claude"},
+			included: false,
+			provider: "claude",
+		},
+		{
+			name:     "empty excluded",
+			entry:    cpaAuthFileEntry{},
+			included: false,
+			provider: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(t, testCase.provider, cpaAuthFileProvider(testCase.entry))
+			assert.Equal(t, testCase.included, isCPADashboardAuthFile(testCase.entry))
+		})
+	}
+}
+
+func TestIsCPAAccountExhausted(t *testing.T) {
+	assert.False(t, isCPAAccountExhausted(DashboardCPAQuotaAccount{}))
+	assert.False(t, isCPAAccountExhausted(DashboardCPAQuotaAccount{
+		WeeklyWindow: &DashboardCPAQuotaWindow{RemainingPercent: 12.5},
+	}))
+	assert.True(t, isCPAAccountExhausted(DashboardCPAQuotaAccount{
+		MonthlyWindow: &DashboardCPAQuotaWindow{RemainingPercent: 0},
+	}))
 }
