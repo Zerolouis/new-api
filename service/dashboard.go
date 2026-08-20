@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -117,6 +118,7 @@ type DashboardCPAQuotaSummary struct {
 
 type DashboardCPAQuotaAccount struct {
 	Name                    string                   `json:"name"`
+	Provider                string                   `json:"provider,omitempty"`
 	Email                   string                   `json:"email,omitempty"`
 	Account                 string                   `json:"account,omitempty"`
 	AuthIndex               string                   `json:"auth_index,omitempty"`
@@ -129,6 +131,7 @@ type DashboardCPAQuotaAccount struct {
 	AccountRemainingSeconds int64                    `json:"account_remaining_seconds,omitempty"`
 	FiveHourWindow          *DashboardCPAQuotaWindow `json:"five_hour_window,omitempty"`
 	WeeklyWindow            *DashboardCPAQuotaWindow `json:"weekly_window,omitempty"`
+	MonthlyWindow           *DashboardCPAQuotaWindow `json:"monthly_window,omitempty"`
 	Error                   string                   `json:"error,omitempty"`
 }
 
@@ -162,6 +165,7 @@ type cpaAuthFilesResponse struct {
 type cpaAuthFileEntry struct {
 	Name           string          `json:"name"`
 	Provider       string          `json:"provider"`
+	Type           string          `json:"type"`
 	Email          string          `json:"email"`
 	Account        string          `json:"account"`
 	AuthIndex      any             `json:"auth_index"`
@@ -529,7 +533,7 @@ func GetDashboardCPAQuotaData(ctx context.Context) DashboardCPAQuotaData {
 	}
 
 	if len(files) == 0 {
-		result.Message = "No Codex accounts found in CPA"
+		result.Message = "No Codex or Grok accounts found in CPA"
 		return result
 	}
 
@@ -727,12 +731,38 @@ func fetchCPAAuthFiles(ctx context.Context, settings cpaSettings) ([]cpaAuthFile
 
 	files := make([]cpaAuthFileEntry, 0, len(payload.Files))
 	for _, entry := range payload.Files {
-		if !strings.EqualFold(strings.TrimSpace(entry.Provider), "codex") {
+		if !isCPADashboardAuthFile(entry) {
 			continue
 		}
 		files = append(files, entry)
 	}
 	return files, nil
+}
+
+func cpaAuthFileProvider(entry cpaAuthFileEntry) string {
+	provider := strings.ToLower(strings.TrimSpace(entry.Provider))
+	if provider != "" {
+		return provider
+	}
+	return strings.ToLower(strings.TrimSpace(entry.Type))
+}
+
+func isCPADashboardAuthFile(entry cpaAuthFileEntry) bool {
+	switch cpaAuthFileProvider(entry) {
+	case "codex", "xai", "grok":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCPACodexProvider(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), "codex")
+}
+
+func isCPAGrokProvider(provider string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(provider))
+	return normalized == "xai" || normalized == "grok"
 }
 
 func fetchCPAQuotaAccounts(ctx context.Context, settings cpaSettings, files []cpaAuthFileEntry) []DashboardCPAQuotaAccount {
@@ -753,8 +783,10 @@ func fetchCPAQuotaAccounts(ctx context.Context, settings cpaSettings, files []cp
 }
 
 func fetchSingleCPAQuotaAccount(ctx context.Context, settings cpaSettings, entry cpaAuthFileEntry) DashboardCPAQuotaAccount {
+	provider := cpaAuthFileProvider(entry)
 	account := DashboardCPAQuotaAccount{
 		Name:             entry.Name,
+		Provider:         provider,
 		Email:            entry.Email,
 		Account:          entry.Account,
 		AuthIndex:        stringifyCPAValue(entry.AuthIndex),
@@ -767,6 +799,13 @@ func fetchSingleCPAQuotaAccount(ctx context.Context, settings cpaSettings, entry
 	}
 	if account.AccountExpiresAt > 0 {
 		account.AccountRemainingSeconds = maxInt64(0, account.AccountExpiresAt-time.Now().Unix())
+	}
+	if isCPAGrokProvider(provider) {
+		applyCPAGrokQuota(ctx, settings, entry, &account)
+		return account
+	}
+	if !isCPACodexProvider(provider) {
+		return account
 	}
 
 	authFile, err := downloadCPACodexAuthFile(ctx, settings, entry.Name)
@@ -846,7 +885,7 @@ func fetchSingleCPAQuotaAccount(ctx context.Context, settings cpaSettings, entry
 	return account
 }
 
-func downloadCPACodexAuthFile(ctx context.Context, settings cpaSettings, name string) (*cpaCodexAuthFile, error) {
+func downloadCPAAuthFile(ctx context.Context, settings cpaSettings, name string) ([]byte, error) {
 	downloadURL := strings.TrimRight(settings.ManagementBaseURL, "/") + "/auth-files/download?name=" + url.QueryEscape(name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
@@ -864,8 +903,16 @@ func downloadCPACodexAuthFile(ctx context.Context, settings cpaSettings, name st
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("failed to download auth file: status=%d", resp.StatusCode)
 	}
+	return io.ReadAll(resp.Body)
+}
+
+func downloadCPACodexAuthFile(ctx context.Context, settings cpaSettings, name string) (*cpaCodexAuthFile, error) {
+	data, err := downloadCPAAuthFile(ctx, settings, name)
+	if err != nil {
+		return nil, err
+	}
 	var payload cpaCodexAuthFile
-	if err := common.DecodeJson(resp.Body, &payload); err != nil {
+	if err := common.Unmarshal(data, &payload); err != nil {
 		return nil, err
 	}
 	return &payload, nil
@@ -892,6 +939,9 @@ func isCPAAccountExhausted(account DashboardCPAQuotaAccount) bool {
 		return true
 	}
 	if account.WeeklyWindow != nil && account.WeeklyWindow.RemainingPercent <= 0 {
+		return true
+	}
+	if account.MonthlyWindow != nil && account.MonthlyWindow.RemainingPercent <= 0 {
 		return true
 	}
 	return false
