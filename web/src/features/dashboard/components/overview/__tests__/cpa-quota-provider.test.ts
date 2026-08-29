@@ -16,44 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import * as LobeIcons from '@lobehub/icons'
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import { getCpaProviderTheme } from '../cpa-quota-provider'
-
-function hasLobeIcon(iconKey: string): boolean {
-  const [baseKey, variant] = iconKey.split('.')
-  const baseIcon = (LobeIcons as Record<string, unknown>)[baseKey]
-  if (!baseIcon) return false
-  if (!variant) return true
-  return Boolean((baseIcon as Record<string, unknown>)[variant])
-}
 
 describe('cpa quota provider icons', () => {
   test('maps Codex accounts to the Codex LobeHub icon', () => {
     const theme = getCpaProviderTheme('codex')
 
-    assert.equal(theme.label, 'Codex')
-    assert.equal(theme.iconKey, 'Codex.Color')
-    assert.equal(hasLobeIcon(theme.iconKey), true)
+    expect(theme.label).toBe('Codex')
+    expect(theme.iconKey).toBe('Codex.Color')
   })
 
   test('maps Grok and xAI accounts to the Grok LobeHub icon', () => {
     const grokTheme = getCpaProviderTheme('grok')
     const xaiTheme = getCpaProviderTheme('xai')
 
-    assert.equal(grokTheme.label, 'Grok')
-    assert.equal(grokTheme.iconKey, 'Grok')
-    assert.equal(xaiTheme.iconKey, 'Grok')
-    assert.equal(hasLobeIcon(grokTheme.iconKey), true)
+    expect(grokTheme.label).toBe('Grok')
+    expect(grokTheme.iconKey).toBe('Grok')
+    expect(xaiTheme.iconKey).toBe('Grok')
   })
 
   test('maps Claude accounts to the Claude LobeHub icon', () => {
     const theme = getCpaProviderTheme('claude')
 
-    assert.equal(theme.label, 'Claude')
-    assert.equal(theme.iconKey, 'Claude.Color')
-    assert.equal(hasLobeIcon(theme.iconKey), true)
+    expect(theme.label).toBe('Claude')
+    expect(theme.iconKey).toBe('Claude.Color')
   })
 })

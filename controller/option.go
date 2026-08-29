@@ -3,14 +3,17 @@ package controller
 import (
 	"fmt"
 	"net/http"
-	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -75,46 +78,6 @@ func buildCompletionRatioMetaValue(optionValues map[string]string) string {
 		return "{}"
 	}
 	return string(jsonBytes)
-}
-
-func serviceParseCPAChannelIDs(raw string) ([]int, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return []int{}, nil
-	}
-	var values []any
-	if err := common.UnmarshalJsonStr(trimmed, &values); err != nil {
-		return nil, fmt.Errorf("CPA 渠道配置必须是 JSON 数组")
-	}
-	channelIDs := make([]int, 0, len(values))
-	seen := make(map[int]struct{}, len(values))
-	for _, value := range values {
-		var id int
-		switch v := value.(type) {
-		case float64:
-			id = int(v)
-			if float64(id) != v {
-				return nil, fmt.Errorf("CPA 渠道 ID 必须是整数")
-			}
-		case string:
-			parsed, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil {
-				return nil, fmt.Errorf("CPA 渠道 ID 必须是整数")
-			}
-			id = parsed
-		default:
-			return nil, fmt.Errorf("CPA 渠道 ID 必须是整数")
-		}
-		if id <= 0 {
-			return nil, fmt.Errorf("CPA 渠道 ID 必须大于 0")
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		channelIDs = append(channelIDs, id)
-	}
-	return channelIDs, nil
 }
 
 func GetOptions(c *gin.Context) {
@@ -191,6 +154,12 @@ func UpdateOption(c *gin.Context) {
 	default:
 		if isPaymentComplianceOptionKey(option.Key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
+			return
+		}
+	}
+	if option.Key == "TaskPublicAddress" && option.Value.(string) != "" {
+		if err := service.ValidateTaskArtifactBaseURL(option.Value.(string)); err != nil {
+			common.ApiErrorMsg(c, err.Error())
 			return
 		}
 	}
@@ -367,6 +336,30 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "billing_setting.billing_expr":
+		expressions := make(map[string]string)
+		if err = common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil {
+			common.ApiErrorMsg(c, "计费表达式配置必须是模型到表达式的 JSON 对象: "+err.Error())
+			return
+		}
+		models := make([]string, 0, len(expressions))
+		for modelName := range expressions {
+			models = append(models, modelName)
+		}
+		sort.Strings(models)
+		generation := jsplugin.DefaultRegistry.Generation()
+		for _, modelName := range models {
+			expression := expressions[modelName]
+			if plugin, ok := generation.GetByModel(modelName); ok {
+				err = billing_setting.SmokeTestTaskExpr(expression, plugin.Meta.UsageSchema)
+			} else {
+				err = billing_setting.SmokeTestExpr(expression)
+			}
+			if err != nil {
+				common.ApiErrorMsg(c, fmt.Sprintf("模型 %s 的计费表达式无效: %v", modelName, err))
+				return
+			}
+		}
 	case "console_setting.api_info":
 		err = console_setting.ValidateConsoleSettings(option.Value.(string), "ApiInfo")
 		if err != nil {
@@ -400,26 +393,6 @@ func UpdateOption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
-			})
-			return
-		}
-	case "console_setting.cpa_base_url":
-		rawValue := strings.TrimSpace(option.Value.(string))
-		if rawValue != "" {
-			parsedURL, parseErr := url.ParseRequestURI(rawValue)
-			if parseErr != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": "CPA Base URL 必须是有效的 http/https 地址",
-				})
-				return
-			}
-		}
-	case "console_setting.cpa_channel_ids":
-		if _, parseErr := serviceParseCPAChannelIDs(option.Value.(string)); parseErr != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": parseErr.Error(),
 			})
 			return
 		}

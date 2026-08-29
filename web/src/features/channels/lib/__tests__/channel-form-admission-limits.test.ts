@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import type { Channel } from '../../types'
 import {
@@ -72,9 +71,9 @@ describe('channel admission limit form', () => {
       channelWithSetting('{"max_concurrency":20,"rpm_limit":120}')
     )
 
-    assert.equal(values.max_concurrency, 20)
-    assert.equal(values.rpm_limit, 120)
-    assert.deepEqual(JSON.parse(buildSettingJSON(values)), {
+    expect(values.max_concurrency).toBe(20)
+    expect(values.rpm_limit).toBe(120)
+    expect(JSON.parse(buildSettingJSON(values))).toEqual({
       force_format: false,
       thinking_to_content: false,
       proxy: '',
@@ -89,8 +88,8 @@ describe('channel admission limit form', () => {
   test('omits zero limits so existing channels remain unlimited', () => {
     const setting = JSON.parse(buildSettingJSON(validForm()))
 
-    assert.equal('max_concurrency' in setting, false)
-    assert.equal('rpm_limit' in setting, false)
+    expect('max_concurrency' in setting).toBe(false)
+    expect('rpm_limit' in setting).toBe(false)
   })
 
   test('rejects negative, fractional, and excessive limits', () => {
@@ -106,8 +105,8 @@ describe('channel admission limit form', () => {
         rpm_limit: value,
       })
 
-      assert.equal(concurrencyResult.success, false)
-      assert.equal(rpmResult.success, false)
+      expect(concurrencyResult.success).toBe(false)
+      expect(rpmResult.success).toBe(false)
     }
   })
 })

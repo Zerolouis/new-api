@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import {
   CPA_QUOTA_ACCOUNT_CARD_MIN_WIDTH,
@@ -26,10 +25,9 @@ import {
 
 describe('cpa quota account grid layout', () => {
   test('fills extra columns instead of stretching cards on wide screens', () => {
-    assert.match(cpaQuotaAccountGridClassName, /auto-fill/)
-    assert.doesNotMatch(cpaQuotaAccountGridClassName, /auto-fit/)
-    assert.match(
-      cpaQuotaAccountGridClassName,
+    expect(cpaQuotaAccountGridClassName).toMatch(/auto-fill/)
+    expect(cpaQuotaAccountGridClassName).not.toMatch(/auto-fit/)
+    expect(cpaQuotaAccountGridClassName).toMatch(
       new RegExp(
         `minmax\\(min\\(100%,${CPA_QUOTA_ACCOUNT_CARD_MIN_WIDTH}\\),1fr\\)`
       )
@@ -37,8 +35,7 @@ describe('cpa quota account grid layout', () => {
   })
 
   test('keeps a single column from overflowing on narrow phones', () => {
-    assert.match(
-      cpaQuotaAccountGridClassName,
+    expect(cpaQuotaAccountGridClassName).toMatch(
       /minmax\(min\(100%,16rem\),1fr\)/
     )
   })

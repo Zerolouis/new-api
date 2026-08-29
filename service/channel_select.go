@@ -8,10 +8,35 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/gin-gonic/gin"
 )
+
+func GetChannelConstraints(c *gin.Context) *dto.ChannelConstraints {
+	if c == nil {
+		return &dto.ChannelConstraints{}
+	}
+	if existing, ok := common.GetContextKeyType[*dto.ChannelConstraints](c, constant.ContextKeyChannelConstraints); ok && existing != nil {
+		return existing
+	}
+	constraints := &dto.ChannelConstraints{}
+	common.SetContextKey(c, constant.ContextKeyChannelConstraints, constraints)
+	return constraints
+}
+
+func AppendTaskPluginIdentityFilter(c *gin.Context, pluginKey string) {
+	if c == nil {
+		return
+	}
+	GetChannelConstraints(c).AddFilter(dto.ChannelFilter{
+		Kind:                   dto.FilterTaskPluginIdentity,
+		TaskPluginKey:          pluginKey,
+		TaskPluginChannelTypes: pinnedTaskPluginChannelTypes(c, pluginKey),
+	})
+}
 
 type RetryParam struct {
 	Ctx          *gin.Context
@@ -103,9 +128,6 @@ func (e *ChannelCapacityError) merge(other *ChannelCapacityError) {
 	}
 }
 
-// SelectChannelWithAdmission selects and reserves a channel before any upstream
-// request is sent. Capacity rejections are handled inside this call, so they do
-// not advance RetryParam or consume an upstream retry.
 func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 	if param == nil || param.Ctx == nil {
 		return nil, errors.New("channel selection requires a request context")
@@ -114,13 +136,13 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 	if param.Ctx.Request != nil {
 		requestContext = param.Ctx.Request.Context()
 	}
+	filters := GetChannelConstraints(param.Ctx).Filters
 	if param.TokenGroup != "auto" {
-		tiers, err := model.GetSatisfiedChannelTiers(param.TokenGroup, param.ModelName, param.RequestPath)
+		tiers, err := model.GetSatisfiedChannelTiers(param.TokenGroup, param.ModelName, filters)
 		if err != nil {
 			return nil, err
 		}
-		selection, err := selectAdmittedChannel(requestContext, param.TokenGroup, tiers, param.GetRetry())
-		return selection, err
+		return selectAdmittedChannel(requestContext, param.TokenGroup, tiers, param.GetRetry())
 	}
 
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
@@ -137,7 +159,6 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 	if startGroupIndex >= len(autoGroups) {
 		return nil, nil
 	}
-
 	crossGroupRetry := common.GetContextKeyBool(param.Ctx, constant.ContextKeyTokenCrossGroupRetry)
 	capacityErr := &ChannelCapacityError{}
 	for groupIndex := startGroupIndex; groupIndex < len(autoGroups); groupIndex++ {
@@ -146,9 +167,7 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 		if groupIndex > startGroupIndex {
 			priorityRetry = 0
 		}
-		logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", selectGroup, priorityRetry)
-
-		tiers, err := model.GetSatisfiedChannelTiers(selectGroup, param.ModelName, param.RequestPath)
+		tiers, err := model.GetSatisfiedChannelTiers(selectGroup, param.ModelName, filters)
 		if err != nil {
 			return nil, err
 		}
@@ -156,7 +175,6 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 			param.advanceAutoGroup(groupIndex)
 			continue
 		}
-
 		selection, err := selectAdmittedChannel(requestContext, selectGroup, tiers, priorityRetry)
 		if err != nil {
 			var groupCapacityErr *ChannelCapacityError
@@ -171,9 +189,7 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 			param.advanceAutoGroup(groupIndex)
 			continue
 		}
-
 		common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, selectGroup)
-		logger.LogDebug(param.Ctx, "Auto selected group: %s", selectGroup)
 		if crossGroupRetry && priorityRetry >= common.RetryTimes {
 			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, groupIndex+1)
 			param.SetRetry(0)
@@ -183,15 +199,12 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 		}
 		return selection, nil
 	}
-
 	if capacityErr.ConcurrencyRejects > 0 || capacityErr.RPMRejects > 0 {
 		return nil, capacityErr
 	}
 	return nil, nil
 }
 
-// CacheGetRandomSatisfiedChannel preserves the legacy selection contract for
-// callers that cannot take ownership of an admission lease.
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
 	group := ""
 	if param != nil {
@@ -220,7 +233,6 @@ func selectAdmittedChannel(ctx context.Context, group string, tiers []model.Chan
 	if startTier >= len(tiers) {
 		startTier = len(tiers) - 1
 	}
-
 	capacityErr := &ChannelCapacityError{}
 	var lastAcquireErr error
 	for tierIndex := startTier; tierIndex < len(tiers); tierIndex++ {
@@ -234,7 +246,6 @@ func selectAdmittedChannel(ctx context.Context, group string, tiers []model.Chan
 			if candidate.Channel == nil {
 				continue
 			}
-
 			lease, decision, err := AcquireChannelAdmission(ctx, candidate.Channel)
 			if err != nil {
 				lastAcquireErr = fmt.Errorf("acquire channel #%d admission: %w", candidate.Channel.Id, err)
@@ -254,4 +265,57 @@ func selectAdmittedChannel(ctx context.Context, group string, tiers []model.Chan
 		return nil, lastAcquireErr
 	}
 	return nil, nil
+}
+
+func pinnedTaskPluginChannelTypes(c *gin.Context, expected string) []int {
+	if c == nil || expected == "" {
+		return nil
+	}
+	if value, exists := c.Get(jsplugin.ContextKeyPinnedEndpoint); exists {
+		pinned, ok := value.(jsplugin.PinnedEndpoint)
+		if ok && pinned.Generation != nil && len(pinned.Candidates) > 1 {
+			expectedFound := false
+			channelTypes := make([]int, 0, len(pinned.Candidates))
+			seen := make(map[int]struct{}, len(pinned.Candidates))
+			for _, candidate := range pinned.Candidates {
+				if candidate.Plugin == nil {
+					continue
+				}
+				if candidate.Plugin.Meta.Key == expected {
+					expectedFound = true
+				}
+				for _, channelType := range candidate.Plugin.Meta.ChannelTypes {
+					if channelType == 0 || channelType == constant.ChannelTypeTaskPlugin {
+						continue
+					}
+					if _, duplicate := seen[channelType]; duplicate {
+						continue
+					}
+					if plugin, indexed := pinned.Generation.GetByChannelType(channelType); indexed && plugin == candidate.Plugin {
+						seen[channelType] = struct{}{}
+						channelTypes = append(channelTypes, channelType)
+					}
+				}
+			}
+			if expectedFound {
+				return channelTypes
+			}
+		}
+	}
+	value, exists := c.Get(jsplugin.ContextKeyPinnedPlugin)
+	pinned, ok := value.(jsplugin.PinnedPlugin)
+	if !exists || !ok || pinned.Generation == nil || pinned.Plugin == nil || pinned.Plugin.Meta.Key != expected {
+		return nil
+	}
+	channelTypes := make([]int, 0, len(pinned.Plugin.Meta.ChannelTypes))
+	for _, channelType := range pinned.Plugin.Meta.ChannelTypes {
+		if channelType == 0 || channelType == constant.ChannelTypeTaskPlugin {
+			continue
+		}
+		channelTypes = append(channelTypes, channelType)
+	}
+	if len(channelTypes) == 0 {
+		return nil
+	}
+	return channelTypes
 }

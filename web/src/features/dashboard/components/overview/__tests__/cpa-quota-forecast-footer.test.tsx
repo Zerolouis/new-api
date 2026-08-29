@@ -16,41 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
-
-import { Window } from 'happy-dom'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { createInstance } from 'i18next'
+import { I18nextProvider, initReactI18next } from 'react-i18next'
+import { describe, expect, test } from 'vitest'
 
 import type { DashboardCPACodexForecast } from '@/features/dashboard/types'
-
-const domWindow = new Window()
-const domGlobals = [
-  'window',
-  'document',
-  'navigator',
-  'HTMLElement',
-  'SVGElement',
-  'Node',
-  'Element',
-  'Event',
-  'CustomEvent',
-  'MutationObserver',
-  'requestAnimationFrame',
-  'cancelAnimationFrame',
-  'getComputedStyle',
-] as const
-
-for (const key of domGlobals) {
-  Object.defineProperty(globalThis, key, {
-    configurable: true,
-    value: domWindow[key],
-  })
-}
-
-const { act } = await import('react')
-const { createRoot } = await import('react-dom/client')
-const { createInstance } = await import('i18next')
-const { I18nextProvider, initReactI18next } = await import('react-i18next')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -77,7 +49,7 @@ await i18n.use(initReactI18next).init({
   },
 })
 
-const { CpaQuotaForecastFooter } = await import('../cpa-quota-forecast-footer')
+import { CpaQuotaForecastFooter } from '../cpa-quota-forecast-footer'
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
@@ -121,23 +93,18 @@ function estimatedForecast(
 }
 
 describe('CPA quota forecast footer', () => {
-  after(() => {
-    domWindow.close()
-  })
-
   test('renders the requested Tibo link as a safe new-tab action', async () => {
     const rendered = await renderFooter(estimatedForecast(true))
     const link = rendered.container.querySelector<HTMLAnchorElement>(
       'a[href="https://x.com/thsottiaux"]'
     )
 
-    assert.ok(link)
-    assert.equal(link.textContent?.includes('Follow Tibo, meow~'), true)
-    assert.equal(link.target, '_blank')
-    assert.equal(link.rel, 'noopener noreferrer')
-    assert.equal(
-      rendered.container.textContent?.includes('125% · 1.25 full accounts'),
-      true
+    expect(link).not.toBeNull()
+    expect(link?.textContent).toContain('Follow Tibo, meow~')
+    expect(link?.target).toBe('_blank')
+    expect(link?.rel).toBe('noopener noreferrer')
+    expect(rendered.container.textContent).toContain(
+      '125% · 1.25 full accounts'
     )
 
     await unmountFooter(rendered)
@@ -145,16 +112,15 @@ describe('CPA quota forecast footer', () => {
 
   test('marks the exhaustion time as a warning only when quota cannot reach reset', async () => {
     const insufficient = await renderFooter(estimatedForecast(false))
-    assert.ok(
+    expect(
       insufficient.container.querySelector('[data-quota-warning="true"]')
-    )
+    ).not.toBeNull()
     await unmountFooter(insufficient)
 
     const sufficient = await renderFooter(estimatedForecast(true))
-    assert.equal(
-      sufficient.container.querySelector('[data-quota-warning="true"]'),
-      null
-    )
+    expect(
+      sufficient.container.querySelector('[data-quota-warning="true"]')
+    ).toBeNull()
     await unmountFooter(sufficient)
   })
 })

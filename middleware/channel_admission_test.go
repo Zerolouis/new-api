@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	appI18n "github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -72,7 +73,12 @@ func TestDistributorRejectsSaturatedSpecificChannelBeforeDownstream(t *testing.T
 	downstreamCalled := false
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		common.SetContextKey(c, constant.ContextKeyTokenSpecificChannelId, "501")
+		service.GetChannelConstraints(c).AddPin(taskdto.ChannelPin{
+			ChannelId: 501,
+			Source:    taskdto.PinSourceToken,
+			Rank:      taskdto.PinRankToken,
+			RetryMode: taskdto.PinRetrySingleAttempt,
+		})
 		c.Next()
 	})
 	router.Use(Distribute())
@@ -89,30 +95,6 @@ func TestDistributorRejectsSaturatedSpecificChannelBeforeDownstream(t *testing.T
 	assert.Equal(t, http.StatusTooManyRequests, response.Code)
 	assert.Equal(t, "1", response.Header().Get("Retry-After"))
 	assert.Equal(t, "channel_capacity_exhausted", gjson.Get(response.Body.String(), "error.code").String())
-	assert.False(t, downstreamCalled)
-}
-
-func TestDistributorRejectsNonStringSpecificChannelID(t *testing.T) {
-	require.NoError(t, appI18n.Init())
-	gin.SetMode(gin.TestMode)
-	downstreamCalled := false
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		common.SetContextKey(c, constant.ContextKeyTokenSpecificChannelId, 501)
-		c.Next()
-	})
-	router.Use(Distribute())
-	router.POST("/v1/chat/completions", func(c *gin.Context) {
-		downstreamCalled = true
-		c.Status(http.StatusNoContent)
-	})
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-test"}`))
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
-
-	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.False(t, downstreamCalled)
 }
 
@@ -158,7 +140,12 @@ func TestDistributorReleasesAdmissionAcrossDownstreamExitPaths(t *testing.T) {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(func(c *gin.Context) {
-		common.SetContextKey(c, constant.ContextKeyTokenSpecificChannelId, "504")
+		service.GetChannelConstraints(c).AddPin(taskdto.ChannelPin{
+			ChannelId: 504,
+			Source:    taskdto.PinSourceToken,
+			Rank:      taskdto.PinRankToken,
+			RetryMode: taskdto.PinRetrySingleAttempt,
+		})
 		c.Next()
 	})
 	router.Use(Distribute())
@@ -236,13 +223,13 @@ func TestDistributorAllowsRoutesThatResolveTheirChannelDownstream(t *testing.T) 
 	originalModelSet := false
 	router := gin.New()
 	router.Use(Distribute())
-	router.GET("/suno/fetch/:id", func(c *gin.Context) {
+	router.GET("/v1/videos/:id", func(c *gin.Context) {
 		downstreamCalled = true
 		_, originalModelSet = c.Get(string(constant.ContextKeyOriginalModel))
 		c.Status(http.StatusNoContent)
 	})
 
-	request := httptest.NewRequest(http.MethodGet, "/suno/fetch/task-1", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/videos/task-1", nil)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 
