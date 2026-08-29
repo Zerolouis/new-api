@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+      - codex/dev
+
+env:
+  IMAGE_NAME: weii-new-api
+  IMAGE_VERSION: v1.1.4
 
 permissions:
   contents: read
@@ -32,7 +37,11 @@ jobs:
       - name: Set image version
         id: version
         run: |
-          VERSION="main-$(date +'%Y%m%d')-${GITHUB_SHA::7}"
+          VERSION="${IMAGE_VERSION}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::IMAGE_VERSION must use the vX.X.X format"
+            exit 1
+          fi
           echo "$VERSION" > VERSION
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -47,8 +56,8 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           push: false
-          tags: calciumion/new-api:${{ steps.version.outputs.value }}-${{ matrix.arch }}
-          outputs: type=docker,dest=/tmp/new-api-${{ matrix.arch }}.tar
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.value }}
+          outputs: type=docker,dest=/tmp/${{ env.IMAGE_NAME }}-${{ matrix.arch }}.tar
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
@@ -57,8 +66,8 @@ jobs:
       - name: Upload Docker image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: new-api-${{ steps.version.outputs.value }}-${{ matrix.arch }}-docker
-          path: /tmp/new-api-${{ matrix.arch }}.tar
+          name: ${{ env.IMAGE_NAME }}-${{ steps.version.outputs.value }}-${{ matrix.arch }}-docker
+          path: /tmp/${{ env.IMAGE_NAME }}-${{ matrix.arch }}.tar
           if-no-files-found: error
           retention-days: 7
 
@@ -66,7 +75,8 @@ jobs:
         run: |
           echo "### Docker image artifact (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "tag: calciumion/new-api:${VERSION}-${{ matrix.arch }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "artifact: new-api-${VERSION}-${{ matrix.arch }}-docker" >> "$GITHUB_STEP_SUMMARY"
+          echo "tag: ${IMAGE_NAME}:${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "platform: ${{ matrix.platform }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "artifact: ${IMAGE_NAME}-${VERSION}-${{ matrix.arch }}-docker" >> "$GITHUB_STEP_SUMMARY"
           echo "digest: ${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
