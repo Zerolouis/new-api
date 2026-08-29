@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -498,6 +499,74 @@ func TestSelectAdmittedChannelReturnsCapacityErrorWhenAllCandidatesAreFull(t *te
 	assert.Equal(t, int64(1), capacityErr.RetryAfterSeconds())
 }
 
+func TestSelectAdmittedChannelSkipsNilCandidate(t *testing.T) {
+	available := &model.Channel{Id: 306}
+	tiers := []model.ChannelCandidateTier{{
+		Priority: 10,
+		Candidates: []model.ChannelCandidate{
+			{Channel: nil, Weight: 1},
+			{Channel: available, Weight: 0},
+		},
+	}}
+
+	selection, err := selectAdmittedChannel(context.Background(), "default", tiers, 0)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	assert.Equal(t, available.Id, selection.Channel.Id)
+	require.NoError(t, selection.Lease.Release())
+}
+
+func TestSelectAdmittedChannelSkipsInvalidSettingsWhenAnotherCandidateIsAvailable(t *testing.T) {
+	invalid := &model.Channel{Id: 307}
+	invalid.SetSetting(dto.ChannelSettings{MaxConcurrency: -1})
+	available := &model.Channel{Id: 308}
+	tiers := []model.ChannelCandidateTier{{
+		Priority: 10,
+		Candidates: []model.ChannelCandidate{
+			{Channel: invalid, Weight: 1},
+			{Channel: available, Weight: 0},
+		},
+	}}
+
+	selection, err := selectAdmittedChannel(context.Background(), "default", tiers, 0)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	assert.Equal(t, available.Id, selection.Channel.Id)
+	require.NoError(t, selection.Lease.Release())
+}
+
+func TestSelectAdmittedChannelReturnsInvalidSettingsWhenNoCandidateIsAvailable(t *testing.T) {
+	invalid := &model.Channel{Id: 309}
+	invalid.SetSetting(dto.ChannelSettings{RPMLimit: -1})
+
+	selection, err := selectAdmittedChannel(context.Background(), "default", []model.ChannelCandidateTier{{
+		Priority:   10,
+		Candidates: []model.ChannelCandidate{{Channel: invalid, Weight: 1}},
+	}}, 0)
+
+	assert.Nil(t, selection)
+	require.ErrorContains(t, err, "acquire channel #309 admission")
+	require.ErrorContains(t, err, "invalid rpm_limit: -1")
+}
+
+func TestRetryParamAdvanceAutoGroupResetsSelectionState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := &gin.Context{}
+	common.SetContextKey(ctx, constant.ContextKeyAutoGroupRetryIndex, 4)
+	retry := 3
+	param := &RetryParam{Ctx: ctx, Retry: &retry}
+
+	param.advanceAutoGroup(1)
+
+	groupIndex, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroupIndex)
+	require.True(t, exists)
+	assert.Equal(t, 2, groupIndex)
+	retryIndex, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroupRetryIndex)
+	require.True(t, exists)
+	assert.Equal(t, 0, retryIndex)
+	assert.Equal(t, 0, param.GetRetry())
+}
+
 func TestSelectChannelWithAdmissionFallsThroughAutoGroupsOnCapacity(t *testing.T) {
 	dsn := fmt.Sprintf("file:channel-admission-auto-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -653,4 +722,71 @@ func TestSelectChannelWithAdmissionDoesNotAdvanceRetryOnCapacitySkip(t *testing.
 	assert.Equal(t, 403, selection.Channel.Id)
 	assert.Equal(t, 0, retry)
 	require.NoError(t, selection.Lease.Release())
+}
+
+func TestSelectChannelWithAdmissionUsesRequestCancellation(t *testing.T) {
+	dsn := fmt.Sprintf("file:channel-admission-context-%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+
+	previousDB := model.DB
+	previousMemoryCache := common.MemoryCacheEnabled
+	previousManager := defaultChannelAdmissionManager
+	model.DB = db
+	common.MemoryCacheEnabled = false
+	defaultChannelAdmissionManager = &channelAdmissionManager{
+		redisClient:  func() *redis.Client { return nil },
+		redisEnabled: func() bool { return true },
+		now:          time.Now,
+		leaseTTL:     channelAdmissionLeaseTTL,
+		rpmWindow:    channelAdmissionRPMWindow,
+		renewLeases:  false,
+	}
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.MemoryCacheEnabled = previousMemoryCache
+		defaultChannelAdmissionManager = previousManager
+		if previousMemoryCache && previousDB != nil {
+			model.InitChannelCache()
+		}
+	})
+
+	priority := int64(10)
+	weight := uint(1)
+	channel := model.Channel{
+		Id:       406,
+		Name:     "cancelled-context",
+		Key:      "key",
+		Status:   common.ChannelStatusEnabled,
+		Models:   "gpt-test",
+		Group:    "default",
+		Priority: &priority,
+		Weight:   &weight,
+	}
+	channel.SetSetting(dto.ChannelSettings{MaxConcurrency: 1})
+	require.NoError(t, db.Create(&channel).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "gpt-test",
+		ChannelId: channel.Id,
+		Enabled:   true,
+		Priority:  &priority,
+		Weight:    weight,
+	}).Error)
+
+	requestContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	gin.SetMode(gin.TestMode)
+	ctx := &gin.Context{Request: httptest.NewRequest("POST", "/v1/chat/completions", nil).WithContext(requestContext)}
+
+	selection, err := SelectChannelWithAdmission(&RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "default",
+		ModelName:   "gpt-test",
+		RequestPath: "/v1/chat/completions",
+	})
+
+	assert.Nil(t, selection)
+	require.ErrorIs(t, err, context.Canceled)
 }

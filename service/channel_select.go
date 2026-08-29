@@ -48,6 +48,12 @@ func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
 }
 
+func (p *RetryParam) advanceAutoGroup(groupIndex int) {
+	common.SetContextKey(p.Ctx, constant.ContextKeyAutoGroupIndex, groupIndex+1)
+	common.SetContextKey(p.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+	p.SetRetry(0)
+}
+
 type ChannelSelection struct {
 	Channel *model.Channel
 	Group   string
@@ -104,12 +110,16 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 	if param == nil || param.Ctx == nil {
 		return nil, errors.New("channel selection requires a request context")
 	}
+	requestContext := context.Context(param.Ctx)
+	if param.Ctx.Request != nil {
+		requestContext = param.Ctx.Request.Context()
+	}
 	if param.TokenGroup != "auto" {
 		tiers, err := model.GetSatisfiedChannelTiers(param.TokenGroup, param.ModelName, param.RequestPath)
 		if err != nil {
 			return nil, err
 		}
-		selection, err := selectAdmittedChannel(param.Ctx, param.TokenGroup, tiers, param.GetRetry())
+		selection, err := selectAdmittedChannel(requestContext, param.TokenGroup, tiers, param.GetRetry())
 		return selection, err
 	}
 
@@ -143,25 +153,22 @@ func SelectChannelWithAdmission(param *RetryParam) (*ChannelSelection, error) {
 			return nil, err
 		}
 		if len(tiers) == 0 {
-			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, groupIndex+1)
-			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
-			param.SetRetry(0)
+			param.advanceAutoGroup(groupIndex)
 			continue
 		}
 
-		selection, err := selectAdmittedChannel(param.Ctx, selectGroup, tiers, priorityRetry)
+		selection, err := selectAdmittedChannel(requestContext, selectGroup, tiers, priorityRetry)
 		if err != nil {
 			var groupCapacityErr *ChannelCapacityError
 			if !errors.As(err, &groupCapacityErr) {
 				return nil, err
 			}
 			capacityErr.merge(groupCapacityErr)
-			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, groupIndex+1)
-			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
-			param.SetRetry(0)
+			param.advanceAutoGroup(groupIndex)
 			continue
 		}
 		if selection == nil {
+			param.advanceAutoGroup(groupIndex)
 			continue
 		}
 
@@ -215,18 +222,24 @@ func selectAdmittedChannel(ctx context.Context, group string, tiers []model.Chan
 	}
 
 	capacityErr := &ChannelCapacityError{}
+	var lastAcquireErr error
 	for tierIndex := startTier; tierIndex < len(tiers); tierIndex++ {
 		candidates := append([]model.ChannelCandidate(nil), tiers[tierIndex].Candidates...)
 		for len(candidates) > 0 {
 			candidate, candidateIndex := model.PickWeightedChannelCandidate(candidates)
-			if candidateIndex < 0 || candidate.Channel == nil {
+			if candidateIndex < 0 {
 				break
 			}
 			candidates = append(candidates[:candidateIndex], candidates[candidateIndex+1:]...)
+			if candidate.Channel == nil {
+				continue
+			}
 
 			lease, decision, err := AcquireChannelAdmission(ctx, candidate.Channel)
 			if err != nil {
-				return nil, fmt.Errorf("acquire channel #%d admission: %w", candidate.Channel.Id, err)
+				lastAcquireErr = fmt.Errorf("acquire channel #%d admission: %w", candidate.Channel.Id, err)
+				logger.LogWarn(ctx, lastAcquireErr.Error())
+				continue
 			}
 			if decision.Allowed {
 				return &ChannelSelection{Channel: candidate.Channel, Group: group, Lease: lease}, nil
@@ -236,6 +249,9 @@ func selectAdmittedChannel(ctx context.Context, group string, tiers []model.Chan
 	}
 	if capacityErr.ConcurrencyRejects > 0 || capacityErr.RPMRejects > 0 {
 		return nil, capacityErr
+	}
+	if lastAcquireErr != nil {
+		return nil, lastAcquireErr
 	}
 	return nil, nil
 }
