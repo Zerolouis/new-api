@@ -22,6 +22,30 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(cpaCodexQuotaSampleHandler{})
+}
+
+type cpaCodexQuotaSampleHandler struct{}
+
+func (cpaCodexQuotaSampleHandler) Type() string { return model.SystemTaskTypeCPACodexQuota }
+
+func (cpaCodexQuotaSampleHandler) Enabled() bool {
+	return service.IsDashboardCPACodexSamplingConfigured()
+}
+
+func (cpaCodexQuotaSampleHandler) Interval() time.Duration { return 10 * time.Minute }
+
+func (cpaCodexQuotaSampleHandler) NewPayload() any { return nil }
+
+func (cpaCodexQuotaSampleHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	sampleCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	result, err := service.SampleDashboardCPACodexQuotas(sampleCtx)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, result, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, result, nil)
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and

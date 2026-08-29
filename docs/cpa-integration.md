@@ -64,17 +64,20 @@
 |---|---|---|
 | 路由 | `router/api-router.go:309-310` | `GET/POST /api/dashboard/cpa-quotas`（仅 `UserAuth`） |
 | 路由 | `router/channel-router.go:63` | `POST /api/channel/:id/codex/refresh`（`authz.ChannelSensitiveWrite`） |
-| 控制器 | `controller/dashboard.go:31-41` | `GetDashboardCPAQuotas`(45s 超时) / `RefreshDashboardCPAQuotaStatus`(60s 超时)，都直调 `service.GetDashboardCPAQuotaData` |
+| 控制器 | `controller/dashboard.go:31-41` | `GetDashboardCPAQuotas` 实时读取状态；`RefreshDashboardCPAQuotaStatus` 强制刷新并落一轮 Codex 额度样本 |
+| 系统任务 | `controller/system_task_handlers.go` | `cpa_codex_quota_sample` 每 10 分钟采样一次，复用系统任务租约避免多 master 重复执行 |
 | 控制器 | `controller/codex_usage.go` | 渠道用量/重置（内部含 401 自刷） |
 | 控制器 | `controller/channel.go:541` | `RefreshCodexChannelCredential`（手动刷新入口） |
 | 控制器 | `controller/option.go:406-426` | `console_setting.cpa_*` 三项的写入校验 |
 | 服务 | `service/dashboard.go` | **CPA 集成核心**：列表/下载 auth-files、Codex WHAM 用量、Grok 走 `applyCPAGrokQuota` |
+| 服务 | `service/cpa_codex_quota_forecast.go` | Codex 瓶颈余量采样、30 天保留、最近 24 小时稳健趋势和重置前耗尽预测 |
 | 服务 | `service/cpa_grok_quota.go` | Grok 额度：下载 xAI 凭证识别付费档，再经 `api-call` 拉周/月 billing 并解析百分比 |
 | 服务 | `service/codex_oauth.go` | `RefreshCodexOAuthTokenWithProxy`(:33)、Codex JWT 解析 |
 | 服务 | `service/codex_credential_refresh.go:42` | 写回 channel.key 的刷新 |
 | 服务 | `service/codex_credential_refresh_task.go` | 10 分钟后台自动刷新任务（仅 master 节点） |
 | 服务 | `service/codex_channel_models.go` / `service/codex_wham_usage.go` | 模型发现（含 401 自刷）/ 打 chatgpt.com wham 用量 |
 | 模型 | `model/option.go:179-181` | `console_setting.cpa_base_url / cpa_management_key / cpa_channel_ids` 默认值 |
+| 模型 | `model/cpa_codex_quota_sample.go` | 匿名账户键、5 小时/周窗口及瓶颈余量历史样本 |
 | 中继 | `relay/channel/codex/adaptor.go:154-198` | 转发时从 channel.key 的 JSON 取 access_token/account_id 拼请求头 |
 
 ### 3.2 前端
@@ -82,8 +85,8 @@
 | 位置 | 内容 |
 |---|---|
 | `web/src/features/dashboard/api.ts:120-133` | `getDashboardCPAQuotas` / `refreshDashboardCPAQuotaStatus` |
-| `web/src/features/dashboard/types.ts:341-385` | `DashboardCPAQuotaAccount/Window/Data/ChannelItem` |
-| `web/src/features/dashboard/components/overview/cpa-quota-panel.tsx` | 额度预览面板（含手动刷新按钮） |
+| `web/src/features/dashboard/types.ts` | `DashboardCPAQuotaAccount/Window/Data/ChannelItem/CodexForecast` |
+| `web/src/features/dashboard/components/overview/cpa-quota-panel.tsx` | 额度预览面板（含手动刷新、总余量和耗尽预测） |
 | `web/src/features/system-settings/integrations/cpa-settings-section.tsx` | CPA 配置表单（base_url + management_key + channel_ids） |
 | `web/src/features/system-settings/operations/section-registry.tsx:44-60`、`index.tsx:33-35`、`types.ts:339-341` | CPA 配置项注册 |
 | `web/src/features/channels/api.ts:311-349` | codex 渠道的 refresh/usage/reset 调用 |

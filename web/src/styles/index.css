@@ -696,3 +696,29 @@ For commercial licensing, please contact support@quantumnous.com
     display: none;
   }
 }
+
+@keyframes cpa-tibo-gradient-travel {
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+.cpa-tibo-button-frame {
+  background: linear-gradient(
+    90deg,
+    var(--chart-1),
+    var(--chart-3),
+    var(--chart-5),
+    var(--chart-2),
+    var(--chart-1)
+  );
+  background-size: 200% 100%;
+  box-shadow: 0 0 18px color-mix(in oklch, var(--chart-3) 24%, transparent);
+  animation: cpa-tibo-gradient-travel 2.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cpa-tibo-button-frame {
+    animation: none;
+  }
+}

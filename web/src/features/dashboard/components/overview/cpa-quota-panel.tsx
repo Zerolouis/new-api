@@ -33,6 +33,7 @@ import dayjs from '@/lib/dayjs'
 import { cn } from '@/lib/utils'
 
 import { CpaQuotaAccountCard } from './cpa-quota-account-card'
+import { CpaQuotaForecastFooter } from './cpa-quota-forecast-footer'
 import { cpaQuotaAccountGridClassName } from './cpa-quota-layout'
 
 export function CpaQuotaPanel() {
@@ -107,6 +108,9 @@ export function CpaQuotaPanel() {
           message={data?.message}
           accounts={data?.accounts}
         />
+        {data?.configured && data.accounts.length > 0 ? (
+          <CpaQuotaForecastFooter forecast={data.codex_forecast} />
+        ) : null}
       </div>
     </section>
   )

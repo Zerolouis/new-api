@@ -100,6 +100,7 @@ type DashboardCPAQuotaData struct {
 	Channels           []DashboardCPAChannelItem  `json:"channels"`
 	Summary            DashboardCPAQuotaSummary   `json:"summary"`
 	Accounts           []DashboardCPAQuotaAccount `json:"accounts"`
+	CodexForecast      DashboardCPACodexForecast  `json:"codex_forecast"`
 }
 
 type DashboardCPAChannelItem struct {
@@ -512,12 +513,21 @@ func GetDashboardUserTokenRankings(periodRaw string) ([]DashboardUserRankingItem
 }
 
 func GetDashboardCPAQuotaData(ctx context.Context) DashboardCPAQuotaData {
+	return getDashboardCPAQuotaData(ctx, false)
+}
+
+func RefreshDashboardCPAQuotaData(ctx context.Context) DashboardCPAQuotaData {
+	return getDashboardCPAQuotaData(ctx, true)
+}
+
+func getDashboardCPAQuotaData(ctx context.Context, persistCodexSample bool) DashboardCPAQuotaData {
 	settings := getCPASettings()
 	result := DashboardCPAQuotaData{
 		Configured:         false,
 		ChannelsConfigured: len(settings.ChannelIDs) > 0,
 		Channels:           getCPAChannels(settings.ChannelIDs),
 		Accounts:           make([]DashboardCPAQuotaAccount, 0),
+		CodexForecast:      unavailableDashboardCPACodexForecast(),
 	}
 
 	if strings.TrimSpace(settings.BaseURL) == "" || strings.TrimSpace(settings.ManagementKey) == "" {
@@ -540,6 +550,10 @@ func GetDashboardCPAQuotaData(ctx context.Context) DashboardCPAQuotaData {
 	accounts := fetchCPAQuotaAccounts(ctx, settings, files)
 	result.Accounts = accounts
 	result.Summary = summarizeCPAQuotaAccounts(accounts)
+	if persistCodexSample {
+		persistDashboardCPACodexQuotaSamples(ctx, accounts, time.Now().Unix())
+	}
+	result.CodexForecast = buildDashboardCPACodexForecast(ctx, accounts, time.Now())
 	if len(result.Channels) == 0 && len(settings.ChannelIDs) > 0 {
 		result.Message = "Configured CPA channels were not found"
 	}

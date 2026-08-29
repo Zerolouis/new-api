@@ -372,6 +372,18 @@ export interface DashboardCPAQuotaAccount {
   error?: string
 }
 
+export interface DashboardCPACodexForecast {
+  status: 'unavailable' | 'collecting' | 'stable' | 'estimated'
+  measured_accounts: number
+  forecast_ready_accounts: number
+  total_remaining_percent: number
+  total_remaining_account_equivalents: number
+  estimated_exhausted_at?: number
+  next_reset_at?: number
+  can_last_until_reset?: boolean
+  sampled_at?: number
+}
+
 export interface DashboardCPAQuotaData {
   configured: boolean
   channels_configured: boolean
@@ -384,4 +396,5 @@ export interface DashboardCPAQuotaData {
     error_accounts: number
   }
   accounts: DashboardCPAQuotaAccount[]
+  codex_forecast: DashboardCPACodexForecast
 }

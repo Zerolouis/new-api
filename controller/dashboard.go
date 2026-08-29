@@ -37,5 +37,5 @@ func GetDashboardCPAQuotas(c *gin.Context) {
 func RefreshDashboardCPAQuotaStatus(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
-	common.ApiSuccess(c, service.GetDashboardCPAQuotaData(ctx))
+	common.ApiSuccess(c, service.RefreshDashboardCPAQuotaData(ctx))
 }
